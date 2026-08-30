@@ -117,8 +117,15 @@ jobs:
           check "qr.png"                  "image/png"
 
           # The app bundle is content-hashed, so its name is only knowable from the HTML.
-          # Without this the smoke test would pass while the entry script 404s.
-          entry=$(curl -sL "${BASE%/}/" | grep -o 'assets/index-[A-Za-z0-9_-]*\.js' | head -1)
+          # Without this the smoke test would pass while the entry script 404s. Read the
+          # module script's src rather than guessing the chunk name: Vite names the entry
+          # after its source module, so src/main.ts ships as assets/main-<hash>.js.
+          # The `|| true` matters -- the runner gives this step `bash -e`, so a grep that
+          # matches nothing would kill the job before the message below could explain why.
+          entry=$(curl -sL "${BASE%/}/" | tr '>' '>\n' \
+                  | grep '<script[^>]*type="module"' \
+                  | grep -o 'src="[^"]*"' | head -1 \
+                  | sed -e 's/^src="//' -e 's/"$//' -e 's|^\./||') || true
           if [ -z "$entry" ]; then
             echo "FAIL could not find the entry bundle in index.html"
             fail=1
