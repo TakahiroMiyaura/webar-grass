@@ -1,5 +1,10 @@
 /* Controls for the A/B placement comparison (MYAA-16). Kept out of style.css so the
-   panel can be lifted out once the method is settled on a device. */
+   panel can be lifted out once the method is settled on a device.
+
+   Only "basis リセット" and "草を消す" are shipped controls (MYAA-22). The method
+   switch, the calibration button and the measurement panel answer developer questions,
+   so they live behind the debug switch - see src/ui/debug-mode.ts. They stay in the DOM
+   either way; hiding them in CSS keeps one code path for building and wiring them. */
 .pp-controls {
   position: absolute;
   left: 10px;
@@ -42,7 +47,7 @@
 .pp-toggle {
   position: absolute;
   right: 10px;
-  top: calc(env(safe-area-inset-top, 0px) + 34px);
+  top: calc(env(safe-area-inset-top, 0px) + 94px);
   width: 38px;
   height: 38px;
   padding: 0;
@@ -54,7 +59,7 @@
   position: absolute;
   left: 10px;
   right: 10px;
-  top: calc(env(safe-area-inset-top, 0px) + 34px);
+  top: calc(env(safe-area-inset-top, 0px) + 94px);
   max-height: 46vh;
   overflow: auto;
   padding: 11px;
@@ -93,4 +98,14 @@
   border-radius: 999px;
   background: rgba(255, 255, 255, .1);
   border: 1px solid rgba(255, 255, 255, .16);
+}
+
+/* --- debug-only controls (MYAA-22) ------------------------------------------ */
+/* .pp-debug marks a whole row: an empty flex row would still claim its gap and push
+   the shipped buttons off the safe area. */
+body:not(.debug-on) .pp-debug,
+body:not(.debug-on) .pp-controls [data-act="calibrate"],
+body:not(.debug-on) .pp-toggle,
+body:not(.debug-on) .pp-panel {
+  display: none;
 }

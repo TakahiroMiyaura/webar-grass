@@ -4,6 +4,7 @@ import './ui/tracking-ux.css'
 import {createTrackingUx} from './ui/tracking-ux.js'
 import type {TrackingUx} from './ui/tracking-ux-types'
 import {initHud} from './ui/hud'
+import {initDebugMode} from './ui/debug-mode'
 import {startEngine} from './xr/engine'
 import type {SceneDiagnostics} from './xr/scene'
 
@@ -38,5 +39,8 @@ if (!canvas) throw new Error('missing #camerafeed in index.html')
 // upstream would ever draw the permission error screen.
 const ux: TrackingUx = createTrackingUx({coaching: 'auto', permissionUi: 'builtin'}).mount()
 
+// Before initHud(), which needs the debug class already on <body> to decide whether the
+// environment button has to stay visible on a device that cannot run the engine.
+initDebugMode()
 initHud()
 startEngine({canvas, diagnostics, ux})

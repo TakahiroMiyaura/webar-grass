@@ -15,10 +15,12 @@
 //   HITTEST (plan B) XR8.XrController.hitTest(), feature-point based, so it picks
 //           up per-surface heights -- at the cost of a noisy, occasionally absent y.
 //
-// AUTO is the shipped default and is "A as the base, B filling the gaps": the plane
-// supplies the reference height and acts as the sanity check, and a hitTest result is
-// only believed when it survives that check. Every rejection is recorded so the
-// on-device measurement panel can show which of A/B carried a given tap.
+// AUTO is "A as the base, B filling the gaps": the plane supplies the reference height
+// and acts as the sanity check, and a hitTest result is only believed when it survives
+// that check. Every rejection is recorded so the on-device measurement panel can show
+// which of A/B carried a given tap.
+//
+// B is what the app now starts in -- see DEFAULT_MODE below for why.
 import * as THREE from 'three'
 import type {XrHitTestResult, XrHitTestType} from '../types/8thwall'
 
@@ -50,6 +52,19 @@ const SURFACE_TYPES = new Set(['DETECTED_SURFACE', 'ESTIMATED_SURFACE'])
 
 export const Mode = {AUTO: 'AUTO', PLANE: 'PLANE', HITTEST: 'HITTEST'} as const
 export type PlacementMode = typeof Mode[keyof typeof Mode]
+
+/**
+ * What the app starts in (MYAA-22). B, not AUTO.
+ *
+ * AUTO validates every hitTest reading against the reference plane and falls back to it
+ * on failure, which is the safe answer but also the one that quietly puts grass on the
+ * floor when the user aimed at a table and B was merely noisy. Running B on its own is
+ * the requirement -- per-surface heights -- taken at face value: when hitTest has no
+ * answer, the tap is reported as a miss rather than answered with the wrong height.
+ *
+ * A and AUTO stay available behind the debug switch; the resolver itself is unchanged.
+ */
+export const DEFAULT_MODE: PlacementMode = Mode.HITTEST
 
 export const LIMITS = {
   // Closer than this is inside the user's own hand; further is a ray that has gone
@@ -169,7 +184,7 @@ export interface ResolveRecord {
 export class PlacementResolver {
   camera?: THREE.Camera
   hitTestFn: HitTestFn
-  mode: PlacementMode = Mode.AUTO
+  mode: PlacementMode = DEFAULT_MODE
   groundY = 0
   lastResolve: ResolveRecord | null = null
 

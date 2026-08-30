@@ -4,6 +4,7 @@
 // Responsibilities are split so no one file owns two questions:
 //   placement.ts       where a tap lands in the world (plan A / plan B / AUTO)
 //   grass.ts           what grows there and how it is drawn (MYAA-17)
+//   flowers.ts         the flowers that open by themselves in it (MYAA-22)
 //   ui/tracking-ux.js  the start gate, coaching, and the answer to a tap that arrives
 //                      before tracking is usable (MYAA-15)
 // This file is the wiring.
@@ -15,6 +16,7 @@ import type {XrCameraPipelineModule} from '../types/8thwall'
 import type {TrackingUx} from '../ui/tracking-ux-types'
 import {Mode, PlacementResolver, type PlacementMode} from './placement'
 import {GrassField} from './grass'
+import {FlowerField} from './flowers'
 import {PlacementPanel} from '../ui/placement-panel'
 import '../ui/placement-panel.css'
 import {setStatus} from '../ui/hud'
@@ -52,6 +54,7 @@ export const createScenePipelineModule = (
   let camera: THREE.PerspectiveCamera
   let resolver: PlacementResolver
   let grass: GrassField | null = null
+  let flowers: FlowerField | null = null
   let panel: PlacementPanel
   let startedAt = 0
 
@@ -134,6 +137,16 @@ export const createScenePipelineModule = (
         diagnostics.errors.push('grass: ' + String((error as Error)?.message ?? error))
       })
 
+      // Garnish, so a failure here must not cost the user their grass: it loads on its
+      // own and the scene runs without it.
+      void FlowerField.create({scene}).then((field) => {
+        flowers = field
+      }).catch((error: unknown) => {
+        diagnostics.errors.push('flowers: ' + String((error as Error)?.message ?? error))
+      })
+
+      // Both the resolver and the panel's pressed state start from placement.ts's
+      // DEFAULT_MODE, so the switch cannot disagree with what is actually running.
       panel = new PlacementPanel({
         toast: (message) => ux.notifyMiss(message),
         onMode: (mode: PlacementMode) => {
@@ -159,9 +172,10 @@ export const createScenePipelineModule = (
           }
           resolver.setGroundY(0)
           grass?.reset()
+          flowers?.reset()
           ux.notifyMiss('基準をリセットしました')
         },
-        onClear: () => { grass?.clear(); ux.notifyMiss('草を消しました') },
+        onClear: () => { grass?.clear(); flowers?.clear(); ux.notifyMiss('草を消しました') },
       })
 
       // One tap must plant exactly one clump. Listening on touchend plus click needs the
@@ -184,15 +198,22 @@ export const createScenePipelineModule = (
 
       // Exposed for the headless placement checks, which need to pose a known camera and
       // read back where a tap actually resolved.
-      ;(window as unknown as {__placement: unknown}).__placement =
-        {resolver, panel, get grass() { return grass }, scene, camera}
+      ;(window as unknown as {__placement: unknown}).__placement = {
+        resolver, panel, scene, camera,
+        get grass() { return grass },
+        get flowers() { return flowers },
+      }
 
       diagnostics.ready = true
     },
 
     onUpdate: () => {
       diagnostics.frames++
-      grass?.update((performance.now() - startedAt) / 1000, camera)
+      const elapsed = (performance.now() - startedAt) / 1000
+      grass?.update(elapsed, camera)
+      // The grass is handed over so flowers can pick a tuft to open on, and so their
+      // number follows it. Nothing else connects the two fields.
+      flowers?.update(elapsed, camera, grass)
     },
 
     onException: (error) => {

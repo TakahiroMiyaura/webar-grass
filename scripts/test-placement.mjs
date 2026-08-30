@@ -2,7 +2,7 @@
 // phone: the camera is a real three.js camera and hitTest is a stub, so every branch
 // of the A / B / AUTO decision is checked against known geometry.
 import * as THREE from 'three'
-import {PlacementResolver, Mode, LIMITS, medianPoint, normalFromRotation} from '../src/xr/placement.ts'
+import {PlacementResolver, Mode, DEFAULT_MODE, LIMITS, medianPoint, normalFromRotation} from '../src/xr/placement.ts'
 
 let pass = 0
 const failures = []
@@ -140,6 +140,7 @@ check('a throwing hitTest does not take the app down', () => {
   })
   const out = r.hitTestHit(W / 2, H / 2, W, H)
   assert(out && out.rejected === 'error', 'expected a recorded error, got ' + JSON.stringify(out))
+  r.setMode(Mode.AUTO)
   const res = r.resolve(W / 2, H / 2, W, H)
   assert(res.chosen && res.chosen.source === Mode.PLANE, 'AUTO should still place via the plane')
 })
@@ -170,8 +171,10 @@ check('samples near a screen edge stay inside 0..1', () => {
 
 console.log('\n-- AUTO: B when it is believable, A otherwise')
 
+// AUTO is no longer what a resolver starts in (MYAA-22 ships B), so these ask for it.
 const auto = (hits, groundY = 0) => {
   const r = new PlacementResolver({camera: makeCamera(), hitTestFn: stub(hits)})
+  r.setMode(Mode.AUTO)
   r.setGroundY(groundY)
   return r.resolve(W / 2, H / 2, W, H)
 }
@@ -198,6 +201,7 @@ check('a lone reading amid scattered samples is not trusted', () => {
   let n = 0
   const scatter = () => [hit(0, [0.7, 2.4, 0.1, 1.9, 0.4][n++ % 5], -1)]
   const r = new PlacementResolver({camera: makeCamera(), hitTestFn: scatter})
+  r.setMode(Mode.AUTO)
   const res = r.resolve(W / 2, H / 2, W, H)
   assert(res.b.agreeing === 1, 'nothing should corroborate the tapped point, got ' + res.b.agreeing)
   assert(res.chosen.source === Mode.PLANE, 'got ' + res.chosen.source)
@@ -209,6 +213,7 @@ check('a lone reading IS trusted when the engine calls it a surface', () => {
   const scatter = () => [hit(0, [0.75, 2.4, 0.1, 1.9, 0.4][n++ % 5], -1,
     n === 1 ? 'DETECTED_SURFACE' : 'FEATURE_POINT')]
   const r = new PlacementResolver({camera: makeCamera(), hitTestFn: scatter})
+  r.setMode(Mode.AUTO)
   const res = r.resolve(W / 2, H / 2, W, H)
   assert(res.chosen.source === Mode.HITTEST, 'got ' + res.chosen.source + ' -- ' + res.why)
   near(res.chosen.point.y, 0.75, 1e-6)
@@ -219,6 +224,7 @@ check('samples that agree on height but not on position are rejected as noise', 
   let n = 0
   const smear = () => [hit([0, 1.2, -0.9, 0.6, -1.4][n++ % 5], 0.75, -1)]
   const r = new PlacementResolver({camera: makeCamera(), hitTestFn: smear})
+  r.setMode(Mode.AUTO)
   const res = r.resolve(W / 2, H / 2, W, H)
   assert(res.b.spread > LIMITS.spreadMax, 'spread=' + res.b.spread)
   assert(res.chosen.source === Mode.PLANE, 'got ' + res.chosen.source)
@@ -234,6 +240,7 @@ check('a tap near a table edge keeps the table, not the floor behind it', () => 
     return [hit(0, y, -1, y > 0.5 ? 'DETECTED_SURFACE' : 'ESTIMATED_SURFACE')]
   }
   const r = new PlacementResolver({camera: makeCamera(), hitTestFn: edge})
+  r.setMode(Mode.AUTO)
   const res = r.resolve(W / 2, H / 2, W, H)
   assert(res.chosen.source === Mode.HITTEST, 'got ' + res.chosen.source + ' -- ' + res.why)
   near(res.chosen.point.y, 0.75, 1e-6, 'a plain median would have said 0 here')
@@ -245,6 +252,7 @@ check('with no reading at the tapped point, the neighbours still decide', () => 
   // The centre query comes back empty; the four neighbours agree on a surface.
   const patchy = () => (n++ === 0 ? [] : [hit(0, 0.75, -1, 'ESTIMATED_SURFACE')])
   const r = new PlacementResolver({camera: makeCamera(), hitTestFn: patchy})
+  r.setMode(Mode.AUTO)
   const res = r.resolve(W / 2, H / 2, W, H)
   assert(res.b.anchored === false, 'should be flagged as unanchored')
   assert(res.chosen.source === Mode.HITTEST, 'got ' + res.chosen.source + ' -- ' + res.why)
@@ -276,6 +284,30 @@ check('every tap is recorded for the on-device A/B comparison', () => {
   assert(res.a && typeof res.a.y === 'number', 'plan A height must be recorded even when unused')
   assert(res.b && res.b.type === 'ESTIMATED_SURFACE', 'plan B type must be recorded')
   assert(typeof res.why === 'string' && res.why.length, 'the decision must be explained')
+})
+
+console.log('\n-- the shipped default')
+
+check('a resolver starts in B, not AUTO (MYAA-22)', () => {
+  assert(DEFAULT_MODE === Mode.HITTEST, 'DEFAULT_MODE is ' + DEFAULT_MODE)
+  assert(new PlacementResolver().mode === DEFAULT_MODE, 'the resolver ignored DEFAULT_MODE')
+})
+
+check('by default a table-height hit is taken as-is, with no plane check', () => {
+  // The same reading AUTO would have thrown out: far enough below the reference plane
+  // that validateAgainstPlane() rejects it. B on its own must not second-guess it.
+  const r = new PlacementResolver({camera: makeCamera(), hitTestFn: stub([hit(0, -0.5, -1)])})
+  const res = r.resolve(W / 2, H / 2, W, H)
+  assert(res.chosen.source === Mode.HITTEST, 'got ' + res.chosen.source + ' -- ' + res.why)
+  near(res.chosen.point.y, -0.5, 1e-6)
+})
+
+check('by default a tap hitTest cannot answer is a miss, not a floor placement', () => {
+  const r = new PlacementResolver({camera: makeCamera(), hitTestFn: stub([])})
+  const res = r.resolve(W / 2, H / 2, W, H)
+  assert(res.chosen === null, 'expected a miss, got ' + JSON.stringify(res.chosen))
+  // The plane is still measured, so the measurement panel can show what A would have said.
+  assert(res.a && typeof res.a.y === 'number', 'plan A must still be recorded')
 })
 
 console.log('\n-- forced modes and calibration')

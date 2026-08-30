@@ -113,6 +113,39 @@ async function run(name, launcher, launchOpts, userAgent, origin) {
   check('the placement layer is live', await page.evaluate(() => Boolean(window.__placement)))
   check('the grass field finished loading',
     await page.evaluate(() => Boolean(window.__placement?.grass)))
+  check('the flower field finished loading',
+    await page.evaluate(() => Boolean(window.__placement?.flowers)))
+  check('the app starts in plan B (MYAA-22)',
+    await page.evaluate(() => window.__placement.resolver.mode) === 'HITTEST')
+
+  // Only "basis リセット" and "草を消す" are shipped controls; the rest is tooling and
+  // has to be off screen until the debug switch is on.
+  const shown = () => page.evaluate(() => {
+    const on = (sel) => {
+      const el = document.querySelector(sel)
+      return Boolean(el) && el.getClientRects().length > 0
+    }
+    return {
+      switch: on('#debug-switch'),
+      recenter: on('[data-act="recenter"]'), clear: on('[data-act="clear"]'),
+      mode: on('.pp-seg'), calibrate: on('[data-act="calibrate"]'),
+      meter: on('.pp-toggle'), diag: on('#diag-toggle'),
+    }
+  })
+  const off = await shown()
+  check('the debug switch is on screen', off.switch, JSON.stringify(off))
+  check('reset and clear stay visible without debug mode', off.recenter && off.clear,
+    JSON.stringify(off))
+  check('every other control is hidden without debug mode',
+    !off.mode && !off.calibrate && !off.meter && !off.diag, JSON.stringify(off))
+
+  await page.click('#debug-switch')
+  const on = await shown()
+  check('the debug switch reveals the developer controls',
+    on.mode && on.calibrate && on.meter && on.diag, JSON.stringify(on))
+  check('the switch is remembered for the next visit', await page.evaluate(() =>
+    document.body.classList.contains('debug-on') &&
+    localStorage.getItem('webar-grass:debug') === '1'))
   check('the engine started without cross-origin isolation (GitHub Pages compatible)',
     (await page.evaluate(() => window.crossOriginIsolated)) === false)
 
@@ -300,6 +333,51 @@ async function run(name, launcher, launchOpts, userAgent, origin) {
   check('taps are recorded for the on-device A/B comparison', ui.logged > 0,
     `entries=${ui.logged}`)
   check('the measurement panel renders a summary', ui.summary)
+
+  // Flowers open on their own in planted grass, and only there.
+  const bloom = await page.evaluate(async () => {
+    const {grass, flowers, resolver, camera} = window.__placement
+    const THREE = window.THREE
+    grass.reset()
+    flowers.reset()
+    camera.position.set(0, 1.6, 0)
+    camera.lookAt(new THREE.Vector3(0, 0, -2))
+    camera.updateMatrixWorld(true)
+    resolver.setMode('PLANE')
+    // Long enough to cover several bloom intervals: with nothing planted there is
+    // nowhere for a flower to open, so the count has to stay at zero.
+    await new Promise((r) => setTimeout(r, 8000))
+    const empty = flowers.liveCount
+    for (let i = 0; i < 12; i++) {
+      const r = resolver.resolve(150 + i * 8, 620, 412, 915)
+      if (r.chosen) grass.plant(r.chosen.point, r.chosen.normal)
+    }
+    const deadline = Date.now() + 20000
+    while (flowers.liveCount === 0 && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 250))
+    }
+    // Read the matrices back: a flower has to stand where the grass is, not at the origin.
+    const m = new THREE.Matrix4(), pos = new THREE.Vector3()
+    const q = new THREE.Quaternion(), scl = new THREE.Vector3()
+    let far = 0
+    for (let i = 0; i < flowers.mesh.count; i++) {
+      flowers.mesh.getMatrixAt(i, m)
+      m.decompose(pos, q, scl)
+      if (scl.lengthSq() < 1e-12) continue
+      far = Math.max(far, Math.abs(pos.y))
+    }
+    const opened = flowers.liveCount
+    grass.clear()
+    await new Promise((r) => setTimeout(r, 1200))
+    return {empty, opened, far, afterClear: flowers.liveCount}
+  })
+  check('no flowers open where there is no grass', bloom.empty === 0, JSON.stringify(bloom))
+  check('flowers open by themselves once grass is planted', bloom.opened > 0,
+    JSON.stringify(bloom))
+  check('a flower stands on the surface its grass is on', bloom.far < 0.06,
+    `|y|max=${bloom.far.toFixed(3)}`)
+  check('clearing the grass takes the flowers with it', bloom.afterClear === 0,
+    JSON.stringify(bloom))
 
   const diag = await page.evaluate(() => window.__diag)
   check('no runtime errors', diag.errors.length === 0 && pageErrors.length === 0,

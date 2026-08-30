@@ -70,6 +70,10 @@ export const initHud = (): void => {
   const env = inspectEnvironment()
   if (env.blocking.length > 0) {
     setStatus('この環境では動きません', env.blocking.map((c) => c.label).join(' / '))
+    // The ⓘ button is otherwise a debug-only tool (MYAA-22). Here it is the only
+    // explanation the user is going to get, so style.css keeps it on screen for this
+    // class regardless of the debug switch.
+    document.body.classList.add('env-blocked')
     openDiagnostics()
   }
 

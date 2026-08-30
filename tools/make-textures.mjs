@@ -1,4 +1,5 @@
-// Generates src/assets/grass-atlas.png and src/assets/shadow.png.
+// Generates src/assets/grass-atlas.png, src/assets/flower-atlas.png and
+// src/assets/shadow.png.
 //
 // The atlas is 2x2 cells, one grass tuft each. An instance picks its cell in the
 // vertex shader from a per-instance random, so four visually distinct tufts still
@@ -100,6 +101,90 @@ await sharp(rgb).joinChannel(alpha)
   .png({compressionLevel: 9, effort: 10, palette: true, quality: 90})
   .toFile(path.join(OUT, 'grass-atlas.png'))
 
+// ---- flower atlas -----------------------------------------------------------
+// Same 2x2 / one-cell-per-instance arrangement as the grass, for the same reason:
+// four visually distinct flowers, one draw call, one texture bind. Flowers are a
+// garnish (a few per hundred tufts), so the card is a plain crossed quad rather than
+// a silhouette-trimmed one -- the fill saved would not pay for a second card table.
+//
+// Drawn face-on with the head in the upper third and a stem running to the bottom of
+// the cell, because the card is billboarded upright like a tuft: a phone looking down
+// at a floor from waist height sees the face, not the edge.
+const petals = (cx, cy, {n, r, w, hue, sat, light, tilt}) => {
+  const out = []
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * 360 + tilt
+    // Back petals first (drawn darker), so the front ones read as nearer.
+    const shade = Math.max(0, Math.cos((a - 90) * Math.PI / 180)) * 9
+    out.push(`<ellipse cx="${(cx + 0).toFixed(1)}" cy="${(cy - r * 0.62).toFixed(1)}" ` +
+      `rx="${(w / 2).toFixed(1)}" ry="${(r * 0.62).toFixed(1)}" ` +
+      `fill="hsl(${hue},${sat}%,${(light - shade).toFixed(0)}%)" ` +
+      `transform="rotate(${a.toFixed(1)} ${cx} ${cy})"/>`)
+  }
+  return out.join('\n      ')
+}
+
+const flower = (seed, spec) => {
+  const r = rng(seed)
+  const cx = CELL / 2
+  const baseY = INSET + IN
+  const headY = INSET + IN * (0.26 + r() * 0.06)
+  const lean = (r() * 2 - 1) * 14
+  // One quadratic stem, bowed slightly, plus a leaf on the wider side.
+  const stem = `<path d="M${cx - 4},${baseY} Q${cx - 6 + lean * 0.4},${(baseY + headY) / 2} ` +
+    `${cx + lean - 3},${headY} L${cx + lean + 3},${headY} ` +
+    `Q${cx + 6 + lean * 0.4},${(baseY + headY) / 2} ${cx + 4},${baseY} Z" fill="hsl(96,42%,32%)"/>`
+  const leafY = headY + IN * 0.34
+  const dir = lean >= 0 ? 1 : -1
+  const leaf = `<path d="M${cx + dir * 3},${leafY} Q${cx + dir * 32},${leafY - 19} ` +
+    `${cx + dir * 39},${leafY + 4} Q${cx + dir * 21},${leafY + 15} ${cx + dir * 3},${leafY}Z" ` +
+    `fill="hsl(102,40%,36%)"/>`
+  const head = petals(cx + lean, headY, {...spec, tilt: r() * 40})
+  const eye = `<circle cx="${cx + lean}" cy="${headY}" r="${(spec.r * 0.34).toFixed(1)}" ` +
+    `fill="hsl(${spec.eyeHue},72%,${spec.eyeLight}%)"/>`
+  return `${stem}\n      ${leaf}\n      ${head}\n      ${eye}`
+}
+
+// Kept light and only lightly saturated: grass.ts tints every instance through
+// instanceColor, and a tint can only darken a texel, never brighten it.
+const blooms = [
+  {seed: 7, n: 5, r: 42, w: 32, hue: 344, sat: 74, light: 76, eyeHue: 46, eyeLight: 62, flood: '#b98a9c'},
+  {seed: 23, n: 6, r: 38, w: 26, hue: 48, sat: 88, light: 68, eyeHue: 32, eyeLight: 44, flood: '#b9a05a'},
+  {seed: 61, n: 5, r: 40, w: 34, hue: 276, sat: 46, light: 76, eyeHue: 50, eyeLight: 66, flood: '#a396b5'},
+  {seed: 89, n: 8, r: 36, w: 19, hue: 14, sat: 82, light: 66, eyeHue: 40, eyeLight: 40, flood: '#b58469'},
+]
+
+const flowerSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="${ATLAS}" height="${ATLAS}">
+  <defs>
+    <clipPath id="fcell"><rect x="${INSET}" y="${INSET}" width="${IN}" height="${IN}"/></clipPath>
+  </defs>
+${blooms.map((b, i) => `  <g transform="translate(${(i % 2) * CELL},${Math.floor(i / 2) * CELL})">
+    <g clip-path="url(#fcell)">
+      ${flower(b.seed, b)}
+    </g>
+  </g>`).join('\n')}
+</svg>`
+
+const flowersPng = await sharp(Buffer.from(flowerSvg)).png().toBuffer()
+
+// Transparent texels are flooded per cell with a muted version of that flower's own
+// colour rather than with one flat green: a magenta bloom fringed with grass green is
+// exactly what lower mips would show otherwise.
+const floodSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="${ATLAS}" height="${ATLAS}">
+${blooms.map((b, i) =>
+  `  <rect x="${(i % 2) * CELL}" y="${Math.floor(i / 2) * CELL}" width="${CELL}" height="${CELL}" fill="${b.flood}"/>`
+).join('\n')}
+</svg>`
+
+const flowerAlpha = await sharp(flowersPng).extractChannel('alpha').toColourspace('b-w').png().toBuffer()
+const flowerRgb = await sharp(Buffer.from(floodSvg))
+  .composite([{input: flowersPng}, {input: ao, blend: 'multiply'}])
+  .removeAlpha().png().toBuffer()
+
+await sharp(flowerRgb).joinChannel(flowerAlpha)
+  .png({compressionLevel: 9, effort: 10, palette: true, quality: 90})
+  .toFile(path.join(OUT, 'flower-atlas.png'))
+
 // ---- contact shadow ---------------------------------------------------------
 // White at the rim, dark in the middle. Drawn with MultiplyBlending this darkens
 // the camera feed underneath instead of painting a grey disc onto it, so it reads
@@ -118,6 +203,6 @@ await sharp(Buffer.from(shadowSvg)).resize(64, 64).greyscale().removeAlpha()
   .png({compressionLevel: 9, effort: 10, palette: true, quality: 90})
   .toFile(path.join(OUT, 'shadow.png'))
 
-for (const f of ['grass-atlas.png', 'shadow.png']) {
+for (const f of ['grass-atlas.png', 'flower-atlas.png', 'shadow.png']) {
   console.log(`  ${f.padEnd(18)} ${fs.statSync(path.join(OUT, f)).size} B`)
 }

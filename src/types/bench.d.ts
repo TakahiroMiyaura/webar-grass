@@ -9,10 +9,12 @@ declare global {
       calls: number
       triangles: number
       live: number
+      flowersLive: number
       n: number
       dpr: number
       shadows: boolean
       feed: boolean
+      flowers: boolean
     }
     __measure?: (frameCount?: number) => Promise<FrameStats | null>
     __setState?: (patch: Record<string, unknown>) => Promise<void>
