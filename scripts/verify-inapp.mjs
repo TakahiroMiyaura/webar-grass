@@ -1,27 +1,34 @@
-// Verifies the in-app browser guard (web/openin.js).
+// Verifies the in-app browser guard (public/openin.js).
 //
 // For each user agent we assert two things that matter for the QR hand-off:
 //   1. whether the guard overlay appears at all, and
 //   2. whether the engine was started — a blocked webview must never get that far,
 //      because XR8.run() there fires a camera prompt that yields the black screen we
-//      are avoiding. "Started" is read from app.js's own log rather than from a
-//      getUserMedia spy: headless WebKit does not treat http://127.0.0.1 as a secure
-//      context, so the camera call is absent there even in plain Safari.
+//      are avoiding. "Started" is read from the app's own log (window.__diag.events)
+//      rather than from a getUserMedia spy, which would be absent for reasons that have
+//      nothing to do with the guard.
 // Each blocked case then dismisses the overlay and asserts the engine does start.
 //
 // Since the tracking UX landed there is a second gate in front of the engine: the start
-// tap (web/tracking-ux.js). So "engine started" now means "guard cleared AND gate tapped",
+// tap (src/ui/tracking-ux.js). So "engine started" means "guard cleared AND gate tapped",
 // and a blocked case is checked twice — once by leaving the gate alone, and once by
 // force-tapping it through the overlay, which is the regression the composed condition
-// in app.js exists to prevent.
+// in src/xr/engine.ts exists to prevent.
+//
+// Served over HTTPS, not plain HTTP: WebKit does not treat http://127.0.0.1 as a secure
+// context, and the app refuses to start outside one — over HTTP every WebKit case would
+// look "blocked" for a reason that has nothing to do with the guard.
 import {webkit, chromium} from 'playwright'
-import http from 'node:http'
+import https from 'node:https'
 import fs from 'node:fs'
 import path from 'node:path'
+import {ensureCert} from './dev-cert.mjs'
 
-const root = path.resolve('web')
-const types = {'.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css'}
-const server = http.createServer((req, res) => {
+const root = path.resolve('dist')
+const types = {'.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
+  '.png': 'image/png', '.svg': 'image/svg+xml', '.map': 'application/json'}
+const {key, cert} = ensureCert()
+const server = https.createServer({key: fs.readFileSync(key), cert: fs.readFileSync(cert)}, (req, res) => {
   const u = decodeURIComponent(req.url.split('?')[0])
   const f = path.join(root, u === '/' ? 'index.html' : u)
   if (!f.startsWith(root) || !fs.existsSync(f) || fs.statSync(f).isDirectory()) {
@@ -30,8 +37,9 @@ const server = http.createServer((req, res) => {
   res.writeHead(200, {'Content-Type': types[path.extname(f)] || 'application/octet-stream'})
   fs.createReadStream(f).pipe(res)
 })
-await new Promise(r => server.listen(8480, '127.0.0.1', r))
-const URL_ = 'http://127.0.0.1:8480/'
+// Ephemeral port so an interrupted run cannot block the next one.
+await new Promise(r => server.listen(0, '127.0.0.1', r))
+const URL_ = `https://127.0.0.1:${server.address().port}/`
 
 const IOS = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) '
 const CASES = [
@@ -55,13 +63,15 @@ const CASES = [
 
 const browsers = {
   webkit: await webkit.launch(),
-  chromium: await chromium.launch({args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream']}),
+  chromium: await chromium.launch({args: ['--use-fake-ui-for-media-stream',
+    '--use-fake-device-for-media-stream', '--ignore-certificate-errors']}),
 }
 
 let failures = 0
 for (const c of CASES) {
   const ctx = await browsers[c.engine].newContext({
     userAgent: c.ua, viewport: {width: 390, height: 844}, isMobile: true, hasTouch: true,
+    ignoreHTTPSErrors: true, permissions: ['camera'],
   })
   const page = await ctx.newPage()
   await page.goto(URL_, {waitUntil: 'load'})

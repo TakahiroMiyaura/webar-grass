@@ -7,7 +7,7 @@ import QRCode from 'qrcode'
 import fs from 'node:fs'
 import path from 'node:path'
 
-const outDir = 'web'
+const outDir = 'dist'
 
 function publishedUrl() {
   if (process.argv[2]) return process.argv[2]
@@ -99,6 +99,6 @@ fs.writeFileSync(path.join(outDir, 'share.html'), `<!DOCTYPE html>
 
 const bytes = fs.statSync(path.join(outDir, 'qr.png')).size
 console.log(`QR generated for: ${url}`)
-console.log(`  web/qr.png    (${bytes} bytes)`)
-console.log(`  web/qr.svg`)
-console.log(`  web/share.html`)
+console.log(`  ${outDir}/qr.png    (${bytes} bytes)`)
+console.log(`  ${outDir}/qr.svg`)
+console.log(`  ${outDir}/share.html`)

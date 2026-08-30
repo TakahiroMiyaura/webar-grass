@@ -2,22 +2,38 @@
   "name": "webar-grass",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "description": "Smartphone WebAR: tap a surface and grass grows there. Self-hosted 8th Wall Engine + three.js, published on GitHub Pages.",
   "license": "MIT",
   "scripts": {
-    "setup": "./setup.sh",
-    "start": "node serve.mjs",
+    "postinstall": "node scripts/sync-vendor.mjs",
+    "predev": "node scripts/sync-vendor.mjs",
+    "dev": "vite",
+    "prebuild": "node scripts/sync-vendor.mjs",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
     "qr": "node tools/make-qr.mjs",
-    "verify": "node verify.mjs",
-    "verify:pages": "node verify-pages.mjs",
-    "verify:inapp": "node verify-inapp.mjs"
+    "verify": "node scripts/verify.mjs",
+    "verify:tracking-ux": "node scripts/verify-tracking-ux.mjs",
+    "verify:inapp": "node scripts/verify-inapp.mjs",
+    "verify:qr": "node tools/verify-qr.mjs"
   },
   "dependencies": {
-    "qrcode": "^1.5.4"
+    "@8thwall/coaching-overlay": "1.0.0",
+    "@8thwall/engine-binary": "1.0.0",
+    "@8thwall/landing-page": "1.0.0",
+    "@8thwall/xrextras": "1.0.0",
+    "qrcode": "^1.5.4",
+    "three": "0.183.2"
   },
   "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/three": "0.183.1",
     "jsqr": "^1.4.0",
-    "playwright": "^1.56.1",
-    "pngjs": "^7.0.0"
+    "playwright": "1.62.1",
+    "pngjs": "^7.0.0",
+    "typescript": "^5.6.0",
+    "vite": "^8.2.2"
   }
 }

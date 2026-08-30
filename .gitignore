@@ -1,18 +1,12 @@
 node_modules/
-cert/
-tmp-three/
-tmp-engine/
+dist/
+.cert/
+
+# Vendored at install time by scripts/sync-vendor.mjs. The 8th Wall engine binary is
+# under the XR Engine License Agreement and stays on its npm distribution path rather
+# than being committed here.
+public/external/
+
+# Headless verification output.
+screenshots/
 shot-*.png
-# Fetched by setup.sh — not committed. The engine binary is under the
-# XR Engine License Agreement and is redistributed only in its original form.
-web/external/
-web/vendor/
-
-# Generated at deploy time by tools/make-qr.mjs from the repository's Pages URL.
-# Not committed: a stale QR that points at the wrong URL is worse than no QR.
-web/qr.png
-web/qr.svg
-web/share.html
-
-# Verification logs
-*.log

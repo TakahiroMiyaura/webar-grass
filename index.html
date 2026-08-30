@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#000000">
+  <title>WebAR — タップして草を生やす</title>
+
+  <!--
+    This product includes the XR Engine software developed by Niantic Spatial, Inc.
+    Copyright (c) 2026 Niantic Spatial, Inc. All rights reserved.
+    License: https://github.com/8thwall/engine/blob/main/LICENSE
+
+    The engine binary is served unmodified from this origin. Do not re-minify or
+    re-bundle external/xr/xr.js - doing so breaks the licence terms.
+  -->
+
+  <!-- Classic script, not a module: it has to run before anything can reach the camera
+       prompt inside an in-app webview. Kept in public/ so Vite copies it untouched. -->
+  <script src="/openin.js"></script>
+
+  <!-- Script-tag globals, not ES modules: these must run before the module entry. -->
+  <script src="/external/xrextras/xrextras.js"></script>
+  <script src="/external/coaching-overlay/coaching-overlay.js"></script>
+  <script src="/external/landing-page/landing-page.js"></script>
+
+  <!-- Self-hosted engine. No CDN, no app key, no account. slam = world tracking chunk. -->
+  <script async src="/external/xr/xr.js" data-preload-chunks="slam"></script>
+</head>
+<body>
+  <canvas id="camerafeed"></canvas>
+
+  <!-- Placement read-out only. All user guidance belongs to tracking-ux. -->
+  <div id="hud">
+    <div id="hud-status"></div>
+    <div id="hud-detail"></div>
+  </div>
+
+  <button id="diag-toggle" type="button" aria-label="動作環境を表示">i</button>
+  <div id="diag-panel" hidden></div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

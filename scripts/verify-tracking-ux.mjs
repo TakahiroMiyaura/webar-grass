@@ -14,9 +14,9 @@ import {chromium, webkit} from 'playwright'
 import https from 'node:https'
 import fs from 'node:fs'
 import path from 'node:path'
-import {execSync} from 'node:child_process'
+import {ensureCert} from './dev-cert.mjs'
 
-const root = path.resolve('web')
+const root = path.resolve('dist')
 const PORT = Number(process.env.PORT || 8543)
 
 // Each pass launches its own browser. On a small box it is worth running them one at
@@ -29,17 +29,12 @@ for (const p of passes) {
   if (!ALL.includes(p)) { console.error(`unknown pass '${p}'. one of: ${ALL.join(' ')}`); process.exit(2) }
 }
 
-if (!fs.existsSync('cert/cert.pem')) {
-  fs.mkdirSync('cert', {recursive: true})
-  execSync('openssl req -x509 -newkey rsa:2048 -nodes -keyout cert/key.pem -out cert/cert.pem ' +
-    '-days 365 -subj "/CN=localhost" -addext ' +
-    '"subjectAltName=DNS:localhost,DNS:ar.example.test,IP:127.0.0.1"', {stdio: 'ignore'})
-}
+const {key: KEY, cert: CERT} = ensureCert()
 
 const types = {'.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
   '.svg': 'image/svg+xml', '.glb': 'model/gltf-binary', '.wasm': 'application/wasm'}
 const server = https.createServer(
-  {key: fs.readFileSync('cert/key.pem'), cert: fs.readFileSync('cert/cert.pem')},
+  {key: fs.readFileSync(KEY), cert: fs.readFileSync(CERT)},
   (req, res) => {
     const u = decodeURIComponent(req.url.split('?')[0])
     const f = path.join(root, u === '/' ? 'index.html' : u)
@@ -372,12 +367,12 @@ async function liveDenied(engine, launcher) {
 
 const LAUNCHER = {chromium, webkit}
 const RUN = {sm: stateMachine, ext: externalMode, live: liveEngine, denied: liveDenied}
-const hasEngine = fs.existsSync('web/external/xr/xr.js')
+const hasEngine = fs.existsSync('dist/external/xr/xr.js')
 
 for (const pass of passes) {
   const [kind, engine] = pass.split(':')
   if (kind !== 'sm' && kind !== 'ext' && !hasEngine) {
-    console.log(`\n(skipping ${pass}: no engine binary — run ./setup.sh first)`)
+    console.log(`\n(skipping ${pass}: no engine binary — run npm run build first)`)
     continue
   }
   await RUN[kind](engine, LAUNCHER[engine])

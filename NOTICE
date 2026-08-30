@@ -16,10 +16,10 @@ Third-party components fetched at build time (NOT redistributed by this reposito
    License: XR Engine License Agreement
             https://github.com/8thwall/engine/blob/main/LICENSE
 
-   The binary is NOT committed to this repository. `fetch-engine.sh` (invoked by
-   `setup.sh`, and by the GitHub Actions workflow at deploy time) downloads it
-   from the official npm registry and places it under `web/external/xr/`, which
-   is git-ignored.
+   The binary is NOT committed to this repository. `scripts/sync-vendor.mjs`
+   (invoked by npm postinstall, and by the GitHub Actions workflow at deploy
+   time) copies it out of node_modules into `public/external/xr/`, which is
+   git-ignored.
 
    The binary is served in its original, unmodified form. Do not modify,
    re-minify or re-bundle `xr.js` / `xr-slam.js`: the copyright notice and the
@@ -31,4 +31,14 @@ Third-party components fetched at build time (NOT redistributed by this reposito
    Copyright (c) 2010-2026 three.js authors
    License: MIT (https://github.com/mrdoob/three.js/blob/dev/LICENSE)
 
-   Fetched by `setup.sh` into `web/vendor/` (git-ignored).
+   Installed as an npm dependency and bundled by Vite.
+
+3. XRExtras / Coaching Overlay / Landing Page
+
+   Copyright (c) 2026 Niantic Spatial, Inc.
+   License: MIT
+
+   Packages: @8thwall/xrextras, @8thwall/coaching-overlay,
+             @8thwall/landing-page (npm)
+
+   Copied into `public/external/` at install time (git-ignored).

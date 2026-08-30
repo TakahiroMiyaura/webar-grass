@@ -4,14 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>tracking-ux state machine harness</title>
-  <link rel="stylesheet" href="./tracking-ux.css">
+  <link rel="stylesheet" href="/src/ui/tracking-ux.css">
   <style>html,body{margin:0;height:100%;background:#223;overflow:hidden}</style>
 </head>
 <body>
   <!-- Drives tracking-ux.js with no engine present, so the state machine can be
        asserted deterministically. Used by verify.mjs; not shipped to users. -->
   <script type="module">
-    import {createTrackingUx} from './tracking-ux.js'
+    import {createTrackingUx} from "/src/ui/tracking-ux.js"
     // ?external=1 fakes the presence of the two official packages so 'auto' resolves
     // the way it will inside the real app.
     if (new URLSearchParams(location.search).has('external')) {
