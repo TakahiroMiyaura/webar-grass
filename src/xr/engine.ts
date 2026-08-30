@@ -1,19 +1,22 @@
-// Engine bootstrap: wait for the globals, assemble the pipeline, start the session.
+// Engine bootstrap: wait for the preconditions, assemble the pipeline, start the session.
 import type {XrCameraPipelineModule} from '../types/8thwall'
+import type {TrackingUx} from '../ui/tracking-ux-types'
 import type {SceneDiagnostics} from './scene'
 import {createScenePipelineModule} from './scene'
 import {inspectEngine} from './capability'
 import {fitCanvas, watchCanvasSize} from './canvas'
 import {hasBlockingEnvironment, openDiagnostics, setStatus} from '../ui/hud'
-import {showStartGate} from '../ui/start-gate'
 
 export interface StartOptions {
   canvas: HTMLCanvasElement
   diagnostics: SceneDiagnostics
+  ux: TrackingUx
 }
 
 const configureOverlays = (): void => {
   // Shown while world tracking is still converging, hidden automatically once it is.
+  // tracking-ux detects this package on window and stands down for that one state,
+  // keeping the loss-recovery banner (which this package never shows) to itself.
   CoachingOverlay.configure({
     promptText: 'スマホをゆっくり動かしてください',
     promptColor: '#ffffff',
@@ -31,9 +34,12 @@ const configureOverlays = (): void => {
   })
 }
 
-const buildPipeline = (diagnostics: SceneDiagnostics): XrCameraPipelineModule[] => [
+const buildPipeline = (
+  diagnostics: SceneDiagnostics,
+  ux: TrackingUx,
+): XrCameraPipelineModule[] => [
   // Two XRExtras modules are deliberately absent because they break on the iOS path:
-  // FullWindowCanvas (see src/xr/canvas.ts) and Loading (see src/ui/start-gate.ts).
+  // FullWindowCanvas (see src/xr/canvas.ts) and Loading (see the note in main.ts).
   XRExtras.RuntimeError.pipelineModule(),
 
   XR8.GlTextureRenderer.pipelineModule(),  // draws the camera feed
@@ -43,21 +49,18 @@ const buildPipeline = (diagnostics: SceneDiagnostics): XrCameraPipelineModule[] 
   LandingPage.pipelineModule(),
   CoachingOverlay.pipelineModule(),
 
+  // Owns coaching, loss recovery, the permission error screen and the answer to a
+  // tap that lands before tracking is usable.
+  ux.pipelineModule(),
+
   {
-    name: 'status-reporter',
+    name: 'diagnostics-reporter',
     onCameraStatusChange: ({status, reason}) => {
-      switch (status) {
-        case 'requesting':
-          setStatus('カメラを準備しています', 'カメラの使用を許可してください')
-          break
-        case 'hasVideo':
-          setStatus('スキャン中…', 'ゆっくり動かして面を検出します')
-          break
-        case 'failed':
-          setStatus('カメラを開けませんでした', String(reason ?? ''))
-          diagnostics.errors.push(`camera failed: ${reason ?? 'unknown'}`)
-          openDiagnostics()
-          break
+      if (status === 'failed') {
+        // tracking-ux puts the user-facing screen up; this only records the reason
+        // and surfaces the environment panel behind it.
+        diagnostics.errors.push(`camera failed: ${reason ?? 'unknown'}`)
+        openDiagnostics()
       }
     },
     onException: (error) => {
@@ -65,10 +68,10 @@ const buildPipeline = (diagnostics: SceneDiagnostics): XrCameraPipelineModule[] 
     },
   },
 
-  createScenePipelineModule(diagnostics),
+  createScenePipelineModule(diagnostics, ux),
 ]
 
-const onXrLoaded = ({canvas, diagnostics}: StartOptions): void => {
+const run = ({canvas, diagnostics, ux}: StartOptions): void => {
   const report = inspectEngine()
   if (report && !report.compatible) {
     // LandingPage takes the screen from here; the panel adds the specific reason.
@@ -76,8 +79,10 @@ const onXrLoaded = ({canvas, diagnostics}: StartOptions): void => {
     openDiagnostics()
   }
 
+  diagnostics.events.push(`XR8 loaded, version=${XR8.version()}`)
+
   configureOverlays()
-  XR8.addCameraPipelineModules(buildPipeline(diagnostics))
+  XR8.addCameraPipelineModules(buildPipeline(diagnostics, ux))
   XR8.XrController.configure({disableWorldTracking: false})
 
   fitCanvas(canvas)
@@ -86,9 +91,20 @@ const onXrLoaded = ({canvas, diagnostics}: StartOptions): void => {
 }
 
 /**
- * Entry point. The three helper libraries are synchronous script tags so they are already
- * on window by the time this module runs; xr.js is async, hence the wait on `xrloaded`.
- * The session only starts from the gate's tap, because iOS needs a user gesture.
+ * Three things must line up before the engine may start, and they arrive in any order:
+ *
+ *   1. xr.js has loaded - it is an async script tag.
+ *   2. public/openin.js is not holding us. Inside an app's embedded webview (LINE,
+ *      Instagram, ...) it sets `__inAppBlocked`, because starting there fires the
+ *      camera prompt in a context that never produces frames - a black screen with no
+ *      explanation. It clears the flag and emits 'inapp-dismissed' on escape or
+ *      "try anyway".
+ *   3. the user tapped the start gate. On iOS that tap is what makes the permission
+ *      prompts legal at all: XR8.run() calls DeviceMotionEvent.requestPermission(),
+ *      and outside a user gesture iOS refuses it and the engine falls back to its own
+ *      English "AR requires access to device motion sensors" modal.
+ *
+ * So every arrival re-checks all three rather than assuming an order.
  */
 export const startEngine = (options: StartOptions): void => {
   if (!window.XRExtras) {
@@ -97,14 +113,22 @@ export const startEngine = (options: StartOptions): void => {
     return
   }
 
-  const whenLoaded = (): void => {
-    // Offering "はじめる" on a device that cannot possibly start is worse than saying so:
-    // initHud() has already put the reason on screen, so leave it there.
-    if (hasBlockingEnvironment()) return
+  let xrLoaded = false
+  let started = false
 
-    setStatus('準備できました', '「はじめる」をタップしてください')
-    showStartGate({onStart: () => onXrLoaded(options)})
+  const startWhenReady = (): void => {
+    if (started || !xrLoaded || window.__inAppBlocked || !options.ux.isStarted()) return
+    // Nothing below can succeed on a device that fails the basic checks, and the panel
+    // is already showing why.
+    if (hasBlockingEnvironment()) return
+    started = true
+    run(options)
   }
-  if (window.XR8) whenLoaded()
-  else window.addEventListener('xrloaded', whenLoaded, {once: true})
+
+  window.addEventListener('inapp-dismissed', startWhenReady)
+  options.ux.onStart(startWhenReady)
+
+  const onXrAvailable = (): void => { xrLoaded = true; startWhenReady() }
+  if (window.XR8) onXrAvailable()
+  else window.addEventListener('xrloaded', onXrAvailable, {once: true})
 }

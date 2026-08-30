@@ -5,6 +5,10 @@
 // on COOP/COEP. Runs the real pipeline in Chromium (Android UA) and WebKit (the engine
 // behind iOS Safari) against Playwright's synthetic camera.
 //
+// Everything is served from a /<repo>/ prefix rather than the domain root, because that
+// is how a GitHub Pages project site publishes. An absolute path that slipped into the
+// HTML or a script would work at the root and 404 here.
+//
 // This is not a substitute for a real phone: the synthetic feed has no parallax, so it
 // exercises the code path without saying anything about SLAM accuracy. What it does
 // settle is "does the page load, start the camera, render, hit test, and place" and
@@ -35,11 +39,21 @@ const TYPES = {
   '.png': 'image/png', '.jpg': 'image/jpeg', '.woff': 'font/woff', '.ttf': 'font/ttf',
   '.map': 'application/json',
 }
+// The subpath a project site is published under.
+const BASE = '/webar-grass/'
+
 const server = https.createServer(
   {key: fs.readFileSync(key), cert: fs.readFileSync(cert)},
   (req, res) => {
     const url = decodeURIComponent(req.url.split('?')[0])
-    const file = path.join(dist, url === '/' ? 'index.html' : url)
+    if (!url.startsWith(BASE)) {
+      // Anything asked for outside the subpath is a bug in the build, not a miss.
+      console.log(`  off-base request: ${url}`)
+      res.writeHead(404)
+      return res.end('outside base path')
+    }
+    const rel = url.slice(BASE.length) || 'index.html'
+    const file = path.join(dist, rel)
     if (!file.startsWith(dist) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
       res.writeHead(404)
       return res.end('not found')
@@ -93,11 +107,11 @@ async function run(name, launcher, launchOpts, userAgent, origin) {
 
   // The session only starts from a user gesture, because iOS requires one for the
   // motion permission - so the check has to press the button like a person would.
-  await page.click('#start-button', {timeout: 60000})
+  await page.click('[data-tux="gate"]', {timeout: 60000})
     .catch((e) => failures.push(`start gate never appeared: ${e.message.split('\n')[0]}`))
 
   // The engine needs a while to fetch the slam chunk and converge on the fake feed.
-  await page.waitForFunction(() => window.__diagnostics?.ready === true, null, {timeout: 90000})
+  await page.waitForFunction(() => window.__diag?.ready === true, null, {timeout: 90000})
     .catch((e) => failures.push(`scene never reached onStart: ${e.message.split('\n')[0]}`))
   await page.waitForTimeout(15000)
 
@@ -106,7 +120,7 @@ async function run(name, launcher, launchOpts, userAgent, origin) {
     await page.waitForTimeout(400)
   }
 
-  const diag = await page.evaluate(() => window.__diagnostics)
+  const diag = await page.evaluate(() => window.__diag)
   const engine = await page.evaluate(() => (window.XR8 ? {
     version: XR8.version(),
     compatible: XR8.XrDevice.isDeviceBrowserCompatible(),
@@ -164,9 +178,9 @@ await run('chromium-android', chromium, {
     '--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream',
     `--host-resolver-rules=MAP ${HOST} 127.0.0.1`, '--ignore-certificate-errors',
   ],
-}, UA.android, `https://${HOST}:${PORT}/`)
+}, UA.android, `https://${HOST}:${PORT}${BASE}`)
 
-await run('webkit-ios', webkit, {}, UA.ios, `https://127.0.0.1:${PORT}/`)
+await run('webkit-ios', webkit, {}, UA.ios, `https://127.0.0.1:${PORT}${BASE}`)
 } finally {
   server.close()
 }
@@ -176,5 +190,6 @@ fs.writeFileSync(path.join(shots, 'results.json'), JSON.stringify(results, null,
 const ok = results.every((r) =>
   r.engine && r.diag?.ready && r.diag.frames > 0 && r.canvasHasContent > 0.05 &&
   r.external.length === 0)
-console.log(`\n${ok ? 'PASS' : 'FAIL'}: camera feed + 3D render on both engines, no external requests`)
+console.log(`\n${ok ? 'PASS' : 'FAIL'}: camera feed + 3D render on both engines from a ` +
+  `${BASE} subpath, no external requests`)
 process.exit(ok ? 0 : 1)

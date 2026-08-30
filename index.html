@@ -16,6 +16,10 @@
     re-bundle external/xr/xr.js - doing so breaks the licence terms.
   -->
 
+  <!-- Classic script, not a module: it has to run before anything can reach the camera
+       prompt inside an in-app webview. Kept in public/ so Vite copies it untouched. -->
+  <script src="/openin.js"></script>
+
   <!-- Script-tag globals, not ES modules: these must run before the module entry. -->
   <script src="/external/xrextras/xrextras.js"></script>
   <script src="/external/coaching-overlay/coaching-overlay.js"></script>
@@ -25,11 +29,11 @@
   <script async src="/external/xr/xr.js" data-preload-chunks="slam"></script>
 </head>
 <body>
-  <!-- XRExtras.FullWindowCanvas keeps this sized to the viewport. -->
   <canvas id="camerafeed"></canvas>
 
+  <!-- Placement read-out only. All user guidance belongs to tracking-ux. -->
   <div id="hud">
-    <div id="hud-status">起動中…</div>
+    <div id="hud-status"></div>
     <div id="hud-detail"></div>
   </div>
 

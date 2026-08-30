@@ -1,6 +1,5 @@
 import {defineConfig} from 'vite'
 import fs from 'node:fs'
-// @ts-expect-error - plain .mjs helper, shared with the npm scripts
 import {ensureCert, lanAddresses} from './scripts/dev-cert.mjs'
 
 // HTTPS=0 serves plain HTTP. That is the mode to use behind a tunnel (cloudflared /
@@ -23,6 +22,15 @@ export default defineConfig({
     target: ['es2020', 'safari15'],
     outDir: 'dist',
     sourcemap: true,
+    rollupOptions: {
+      input: {
+        main: 'index.html',
+        // The tracking-ux state machine harness. Built so scripts/verify-tracking-ux.mjs
+        // can drive the same bundle that ships; the deploy workflow deletes it from
+        // dist/ before upload so it is never published.
+        statemachine: 'statemachine-test.html',
+      },
+    },
   },
   server: {
     // Listen on the LAN so a phone on the same Wi-Fi can reach the dev server.

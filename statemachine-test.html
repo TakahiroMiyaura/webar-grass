@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>tracking-ux state machine harness</title>
+  <link rel="stylesheet" href="/src/ui/tracking-ux.css">
+  <style>html,body{margin:0;height:100%;background:#223;overflow:hidden}</style>
+</head>
+<body>
+  <!-- Drives tracking-ux.js with no engine present, so the state machine can be
+       asserted deterministically. Used by verify.mjs; not shipped to users. -->
+  <script type="module">
+    import {createTrackingUx} from "/src/ui/tracking-ux.js"
+    // ?external=1 fakes the presence of the two official packages so 'auto' resolves
+    // the way it will inside the real app.
+    if (new URLSearchParams(location.search).has('external')) {
+      window.CoachingOverlay = {configure: () => {}, pipelineModule: () => ({})}
+      window.XRExtras = {Loading: {showLoading: () => {}}}
+    }
+    const ux = createTrackingUx({showDelayMs: 600, hideDelayMs: 250, toastMs: 1000}).mount()
+    const pm = ux.pipelineModule()
+    window.__h = {
+      ux,
+      camera: (status, reason) => pm.onCameraStatusChange({status, reason}),
+      tracking: (status, reason) => pm.listeners[0].process({status, reason}),
+      frame: (trackingStatus, trackingReason) =>
+        pm.onUpdate({processCpuResult: {reality: {trackingStatus, trackingReason}}}),
+      exception: (err) => pm.onException(err),
+      phase: () => ux.state.phase,
+      modes: () => ({coaching: ux.coachingMode, permissionUi: ux.permissionUiMode}),
+      suppressed: () => document.querySelector('.tux').getAttribute('data-coach-suppressed'),
+      ready: () => ux.isReady(),
+      rejectTap: () => ux.rejectTap(),
+      miss: () => ux.notifyMiss(),
+      // What the user can actually see right now.
+      visible: () => {
+        const vis = (sel) => {
+          const el = document.querySelector(sel)
+          if (!el) return null
+          const s = getComputedStyle(el)
+          return s.display !== 'none' && s.opacity !== '0' && s.visibility !== 'hidden'
+        }
+        return {
+          gate: vis('[data-tux="gate"]'),
+          coach: vis('[data-tux="coach"]'),
+          error: vis('[data-tux="error"]'),
+          toast: document.querySelector('[data-tux="toast"]').classList.contains('show'),
+          coachTitle: document.querySelector('[data-tux="coach-title"]').textContent,
+          coachBody: document.querySelector('[data-tux="coach-body"]').textContent,
+          toastText: document.querySelector('[data-tux="toast"]').textContent,
+          errorTitle: document.querySelector('[data-tux="error-title"]').textContent,
+          errorBody: document.querySelector('[data-tux="error-body"]').textContent,
+        }
+      },
+    }
+  </script>
+</body>
+</html>

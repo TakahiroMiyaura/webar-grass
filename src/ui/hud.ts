@@ -1,8 +1,13 @@
-// On-screen status line and the environment panel.
+// The environment panel, plus a one-line placement read-out.
 //
 // The panel is the answer to "非対応環境の判定結果を画面に出せる": it opens by itself when
 // something blocking is found, and is reachable any time from the ⓘ button or ?diag=1,
-// so a failure on someone else's phone can be read out instead of guessed at.
+// so a failure on someone else's phone can be read out instead of guessed at. It sits
+// above the start gate and the in-app guard on purpose - the devices that need it are
+// exactly the ones stuck behind one of those.
+//
+// User guidance is NOT here. tracking-ux owns every instruction the user reads; this
+// line only reports what was placed, so the two never contradict each other.
 import {inspectEngine, inspectEnvironment, type Check} from '../xr/capability'
 
 const el = <T extends HTMLElement>(id: string): T => {
@@ -60,13 +65,12 @@ export const initHud = (): void => {
     else panelEl.hidden = true
   })
 
+  // An in-app browser is not handled here: public/openin.js already puts a full-screen
+  // guard up with the per-app escape route, long before this runs.
   const env = inspectEnvironment()
   if (env.blocking.length > 0) {
     setStatus('この環境では動きません', env.blocking.map((c) => c.label).join(' / '))
     openDiagnostics()
-  } else if (env.inAppBrowser) {
-    setStatus(`${env.inAppBrowser} 内で開かれています`,
-      'うまく動かない場合は Safari / Chrome で開き直してください')
   }
 
   if (new URLSearchParams(location.search).has('diag')) openDiagnostics()

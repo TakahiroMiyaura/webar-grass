@@ -46,10 +46,14 @@ export interface XrDeviceEstimate {
 
 export interface XrCameraPipelineModule {
   name: string
+  /** Engine event subscriptions, e.g. 'reality.trackingstatus'. */
+  listeners?: {event: string; process: (detail: Record<string, unknown>) => void}[]
   onStart?: (args: {canvas: HTMLCanvasElement; GLctx: WebGLRenderingContext}) => void
   onBeforeRun?: (args: unknown) => void
   onUpdate?: (args: {processCpuResult: Record<string, unknown>}) => void
-  onCameraStatusChange?: (args: {status: CameraStatus; reason?: string}) => void
+  // `reason` is always present as a key (undefined on success), not optional - modules
+  // destructure it directly, and marking it optional makes them fail to type-check.
+  onCameraStatusChange?: (args: {status: CameraStatus; reason: string | undefined}) => void
   onException?: (error: Error) => void
   onDeviceOrientationChange?: () => void
   onCanvasSizeChange?: (args: {canvasWidth: number; canvasHeight: number}) => void
@@ -64,6 +68,10 @@ declare global {
     LandingPage?: typeof LandingPage
     /** XR8.Threejs builds its scene from the global THREE; main.ts assigns it. */
     THREE?: unknown
+    /** Set by public/openin.js inside an in-app webview; cleared on "try anyway". */
+    __inAppBlocked?: boolean
+    /** The app id of the detected in-app webview, e.g. 'line'. */
+    __inAppBrowser?: string
   }
 
   const XR8: {

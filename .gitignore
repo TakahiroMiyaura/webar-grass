@@ -9,3 +9,4 @@ public/external/
 
 # Headless verification output.
 screenshots/
+shot-*.png

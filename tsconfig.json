@@ -6,6 +6,9 @@
     "moduleResolution": "bundler",
     "types": ["vite/client", "node"],
     "strict": true,
+    // src/ui/tracking-ux.js is plain JS on purpose (see src/types/tracking-ux.d.ts).
+    "allowJs": true,
+    "checkJs": false,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,

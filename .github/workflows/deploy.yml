@@ -1,5 +1,5 @@
 # Publishes the Vite build to GitHub Pages. The 8th Wall engine binary and three.js are
-# fetched from npm at build time, so neither is committed to the repository.
+# fetched from npm at install time, so neither is committed to the repository.
 name: Deploy to GitHub Pages
 
 on:
@@ -25,10 +25,35 @@ jobs:
         with:
           node-version: 20
           cache: npm
-      # postinstall runs scripts/sync-vendor.mjs, which places the 8th Wall runtime
-      # under public/external/ and drops the unused face/semantics payload (~24 MB).
+
+      # postinstall runs scripts/sync-vendor.mjs, which copies the 8th Wall runtime into
+      # public/external/ and drops the face/semantics payload (~24MB) this experience
+      # never loads. world tracking needs xr.js + xr-slam.js only.
       - run: npm ci
+
       - run: npm run build
+
+      # The engine binary is redistributed unmodified and its licence text ships with
+      # it. Losing this file would put the deployment out of licence compliance.
+      - name: Check the engine licence text is present
+        run: test -s dist/external/xr/LICENSE
+
+      # Derives the URL from the repository, so the QR always matches where this build
+      # is actually being published to.
+      - name: Generate the QR code and hand-out page
+        run: node tools/make-qr.mjs
+
+      - name: Check the QR decodes to the published URL
+        run: node tools/verify-qr.mjs
+
+      # A test harness, not part of the experience. It is a build input so the checks
+      # run against the shipped bundle, but it has no business being on the public site.
+      - name: Drop the state-machine harness from the artifact
+        run: rm -f dist/statemachine-test.html
+
+      - name: Report deployed payload size
+        run: du -sh dist && du -sh dist/external/*
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: ./dist
@@ -39,6 +64,79 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+    outputs:
+      page_url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
+
+  # A deploy that "succeeds" while serving a 404 or the wrong content type still leaves
+  # a black screen on the phone. Fetch the live site and assert the boot path is intact.
+  smoke:
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify the published site
+        env:
+          BASE: ${{ needs.deploy.outputs.page_url }}
+        run: |
+          set -uo pipefail
+          echo "checking $BASE"
+          fail=0
+
+          check() {
+            path="$1"; want_type="$2"
+            url="${BASE%/}/$path"
+            code=000
+            # Pages can take a few seconds to start serving a fresh deployment.
+            for attempt in 1 2 3 4 5; do
+              code=$(curl -sL -o /dev/null -w '%{http_code}' "$url") || code=000
+              [ "$code" = "200" ] && break
+              sleep 5
+            done
+            type=$(curl -sIL "$url" | awk 'BEGIN{IGNORECASE=1} /^content-type:/{print tolower($2)}' | tail -1)
+            if [ "$code" != "200" ]; then
+              echo "FAIL $path -> HTTP $code"
+              fail=1
+            elif ! printf '%s' "$type" | grep -qi -- "$want_type"; then
+              echo "FAIL $path -> content-type '$type', wanted '$want_type'"
+              fail=1
+            else
+              echo "ok   $path -> $code $type"
+            fi
+          }
+
+          check ""                        "text/html"
+          check "openin.js"               "javascript"
+          check "external/xr/xr.js"       "javascript"
+          check "external/xr/xr-slam.js"  "javascript"
+          check "external/xrextras/xrextras.js" "javascript"
+          check "share.html"              "text/html"
+          check "qr.png"                  "image/png"
+
+          # The app bundle is content-hashed, so its name is only knowable from the HTML.
+          # Without this the smoke test would pass while the entry script 404s.
+          entry=$(curl -sL "${BASE%/}/" | grep -o 'assets/index-[A-Za-z0-9_-]*\.js' | head -1)
+          if [ -z "$entry" ]; then
+            echo "FAIL could not find the entry bundle in index.html"
+            fail=1
+          else
+            check "$entry" "javascript"
+          fi
+
+          # The harness must not be published.
+          hcode=$(curl -sL -o /dev/null -w '%{http_code}' "${BASE%/}/statemachine-test.html")
+          if [ "$hcode" = "200" ]; then
+            echo "FAIL statemachine-test.html is published"
+            fail=1
+          else
+            echo "ok   statemachine-test.html is not published ($hcode)"
+          fi
+
+          # gzip is what keeps the ~6.5MB engine to roughly a third of that over the wire.
+          enc=$(curl -sL -o /dev/null -H 'Accept-Encoding: gzip' \
+                -w '%header{content-encoding}' "${BASE%/}/external/xr/xr-slam.js")
+          echo "engine content-encoding: ${enc:-none}"
+          [ "$enc" = "gzip" ] || echo "WARN engine is not being served compressed"
+
+          exit $fail

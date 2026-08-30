@@ -1,0 +1,150 @@
+/* Tracking-state UX (MYAA-15). Every layer is driven by [data-phase] on .tux,
+   so the app never toggles individual elements. */
+
+.tux {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  pointer-events: none;               /* only the gate and error screens take input */
+  color: #fff;
+  font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.tux-gate,
+.tux-error {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  box-sizing: border-box;
+  background: #10141a;
+  pointer-events: auto;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.tux[data-phase="gate"] .tux-gate { display: flex; }
+
+/* In 'external' permission mode XRExtras.Loading draws the permission screens. */
+.tux[data-permission-ui="builtin"][data-phase="error"] .tux-error { display: flex; }
+
+.tux-gate-inner {
+  max-width: 22em;
+  text-align: center;
+}
+
+.tux-gate-inner h1 {
+  margin: 20px 0 10px;
+  font-size: 19px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.tux-gate-inner p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.75;
+  color: #b9c2cf;
+}
+
+.tux-btn {
+  display: inline-block;
+  margin-top: 26px;
+  padding: 14px 30px;
+  border-radius: 999px;
+  background: #4ade80;
+  color: #08130c;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.tux-btn:active { transform: scale(0.97); }
+
+.tux-error .tux-btn { background: #fff; color: #10141a; }
+
+/* --- coaching / recovery ------------------------------------------------- */
+
+.tux-coach {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 18px 16px calc(22px + env(safe-area-inset-bottom, 0px));
+  background: linear-gradient(transparent, rgba(6, 10, 16, 0.82) 42%);
+  opacity: 0;
+  transform: translateY(12px);
+  transition: opacity 220ms ease, transform 220ms ease;
+}
+
+/* Coaching is only ours when CoachingOverlay is not already showing for this exact
+   state (see syncCoachOwner in tracking-ux.js). Recovery is always ours. */
+.tux[data-phase="coaching"]:not([data-coach-suppressed="1"]) .tux-coach,
+.tux[data-phase="recovering"] .tux-coach {
+  opacity: 1;
+  transform: none;
+}
+
+/* Recovery is the same block in a warmer colour: the user already had tracking,
+   so this is "something went wrong", not "we are getting started". */
+.tux[data-phase="recovering"] .tux-coach-text strong { color: #ffcf6b; }
+
+.tux-coach-inner {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  max-width: 26em;
+  margin: 0 auto;
+}
+
+.tux-coach-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
+}
+
+.tux-coach-text strong { font-size: 15px; font-weight: 600; }
+.tux-coach-text span { font-size: 13px; line-height: 1.5; color: #c3ccd8; }
+
+.tux-phone { width: 34px; height: 51px; flex: none; }
+.tux-gate-inner .tux-phone { width: 52px; height: 78px; color: #4ade80; }
+
+.tux-swing {
+  flex: none;
+  animation: tux-swing 2.2s ease-in-out infinite;
+  transform-origin: 50% 80%;
+}
+
+@keyframes tux-swing {
+  0%, 100% { transform: rotate(-16deg) translateX(-5px); }
+  50%      { transform: rotate(16deg) translateX(5px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tux-swing { animation: none; }
+  .tux-coach { transition: none; }
+}
+
+/* --- toast --------------------------------------------------------------- */
+
+.tux-toast {
+  position: absolute;
+  left: 50%;
+  bottom: calc(112px + env(safe-area-inset-bottom, 0px));
+  transform: translate(-50%, 8px);
+  max-width: 80vw;
+  padding: 11px 18px;
+  border-radius: 999px;
+  background: rgba(16, 20, 26, 0.92);
+  font-size: 13.5px;
+  line-height: 1.5;
+  text-align: center;
+  opacity: 0;
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+
+.tux-toast.show { opacity: 1; transform: translate(-50%, 0); }
