@@ -122,4 +122,18 @@ const onxrloaded = () => {
   XR8.run({canvas})
 }
 
-window.XR8 ? onxrloaded() : window.addEventListener('xrloaded', onxrloaded, {once: true})
+// openin.js sets __inAppBlocked when the page is running inside an app's embedded
+// webview (LINE, Instagram, ...). Hold the engine there: starting it would fire the
+// camera prompt in a context where the stream never produces frames, leaving a black
+// screen. Start once the user either escapes to a real browser or opts to try anyway.
+let xrReady = false
+let started = false
+const startWhenReady = () => {
+  if (started || !xrReady || window.__inAppBlocked) return
+  started = true
+  onxrloaded()
+}
+window.addEventListener('inapp-dismissed', startWhenReady)
+const onXrAvailable = () => { xrReady = true; startWhenReady() }
+
+window.XR8 ? onXrAvailable() : window.addEventListener('xrloaded', onXrAvailable, {once: true})

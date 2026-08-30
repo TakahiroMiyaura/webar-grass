@@ -7,3 +7,9 @@ shot-*.png
 # XR Engine License Agreement and is redistributed only in its original form.
 web/external/
 web/vendor/
+
+# Generated at deploy time by tools/make-qr.mjs from the repository's Pages URL.
+# Not committed: a stale QR that points at the wrong URL is worse than no QR.
+web/qr.png
+web/qr.svg
+web/share.html

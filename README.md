@@ -48,16 +48,81 @@ node serve.mjs    # https://<LAN IP>:8443/ が表示される
 
 ## 公開する
 
-`main` への push で GitHub Actions が `web/` を GitHub Pages にデプロイする。
+公開先は **GitHub Pages + GitHub Actions**。`main` への push で `web/` が自動デプロイされる。
+
 初回のみ **Settings > Pages > Source** を **GitHub Actions** に設定する必要がある
 （設定前の push はワークフローが失敗する）。
 
 **COOP / COEP は不要**であることを実測で確認済みなので、レスポンスヘッダを触れない
 静的ホスティングでそのまま動く。パスはすべて相対で、`https://<user>.github.io/<repo>/` の
-ようなサブパス配信でも問題ない。
+ようなサブパス配信でも問題ない。この 2 点が「Pages で十分」と判断した理由で、
+Cloudflare Pages / Netlify に移るのは `_headers` でヘッダを足したくなったときだけでよい。
 
-デプロイされる実体は約 8.3 MB。world tracking に使わない face / semantics（約 24 MB）は
-ワークフローが落としている。
+### ワークフローがやること
+
+1. `setup.sh` で three.js と エンジンバイナリを npm から取得
+2. world tracking に使わない face / semantics（約 24 MB）を削除 → 実体は約 **8.3 MB**
+3. エンジンの `LICENSE` が残っていることを確認（欠けるとライセンス違反になるため）
+4. `tools/make-qr.mjs` で **QR コードと配布ページを生成**
+5. Pages へデプロイ
+6. **公開された URL を実際に叩いて疎通確認**（smoke ジョブ）
+
+6 は「デプロイは成功したのに端末では黒画面」を防ぐためのもの。`index.html` / `app.js` /
+`openin.js` / `xr.js` / `xr-slam.js` / `share.html` / `qr.png` が 200 で返り、
+Content-Type が期待どおりかを検証する。1 つでも外れると赤くなる。
+
+### QR コードと配布ページ
+
+QR は**リポジトリにコミットせず、デプロイのたびに生成する**。URL は
+`GITHUB_REPOSITORY` から導出しているので、リポジトリ名を変えても QR がずれない。
+
+デプロイ後、配布ページは公開 URL の `/share.html` にある。QR・URL・操作手順・
+アプリ内ブラウザの注意書きが 1 枚に載っていて、そのまま印刷できる。
+QR 画像単体が要る場合は `/qr.png`（PNG）と `/qr.svg`（ベクタ、印刷向け）。
+
+手元で確認する場合:
+
+```bash
+npm install
+node tools/make-qr.mjs https://example.github.io/webar-grass/
+node tools/verify-qr.mjs https://example.github.io/webar-grass/   # QR を復号して URL を照合
+```
+
+### アプリ内ブラウザ対策
+
+QR は LINE や Instagram から読まれることが多く、その場合リンクはアプリ内の webview で開く。
+そこでは `getUserMedia` が通らない、あるいは通っても SLAM にフレームが届かず、
+**原因の分からない黒画面**になる。
+
+`web/openin.js` が UA を見て以下を検出し、エンジンを起動する前に案内を出す。
+カメラ許可のダイアログを出さずに止めるのが要点。
+
+- LINE / Instagram / Facebook / X / TikTok / WeChat / Slack
+- iOS で Safari・Chrome・Firefox・Edge のいずれでもない webview
+- Android の `; wv)` 付き webview
+
+脱出方法は環境ごとに変えている。LINE は `?openExternalBrowser=1` が効くのでそれを使い、
+Android は `intent://` で Chrome を直接開く。iOS は `x-safari-https://` を試すが、
+Instagram と Facebook はこれを塞いでいるため、**「右下の … から外部ブラウザで開く」**という
+文言と URL コピーに倒している。誤検出に備えて「このまま試す」も置いてある。
+
+検証は `node verify-inapp.mjs`（Playwright で 8 種の UA を実行し、
+アプリ内ブラウザではエンジンが起動しないこと・通常のブラウザでは起動することを確認する）。
+
+### MIME とキャッシュについて
+
+GitHub Pages の実測値。**`.wasm` の Content-Type 事故は起きない**。
+
+| | Content-Type | 備考 |
+|---|---|---|
+| `.js` | `application/javascript` | gzip で配信される（エンジン 6.5 MB → 約 2.2 MB） |
+| `.wasm` | `application/wasm` | 正しい。なお現行のエンジンに `.wasm` 単体ファイルは無い |
+| `.glb` | `model/gltf-binary` | 草アセットを入れるときもそのまま置ける |
+
+- 圧縮は **gzip のみで brotli は無い**が、設定は不要で自動的にかかる
+- `Cache-Control` は全ファイル `max-age=600` 固定で**変更できない**。
+  10 分を過ぎた再訪では約 2.6 MB を取り直す。ここが問題になったときが
+  Cloudflare Pages へ移る判断ポイント
 
 ## 構成
 
@@ -67,11 +132,16 @@ web/
   app.js              three.js シーン + hitTest + タップ設置
   vendor/             three.js（setup.sh が配置。git 管理外）
   external/xr/        8th Wall エンジンバイナリ（fetch-engine.sh が配置。git 管理外）
+  openin.js           アプリ内ブラウザ検出と外部ブラウザへの誘導
+  share.html          QR 配布ページ（デプロイ時に生成。git 管理外）
+  qr.png / qr.svg     QR 画像（デプロイ時に生成。git 管理外）
 setup.sh              three.js + エンジンバイナリの取得
 fetch-engine.sh       エンジンバイナリのみ取得
 serve.mjs             自己署名 HTTPS の開発サーバ
+tools/make-qr.mjs     公開 URL から QR と配布ページを生成
+tools/verify-qr.mjs   生成した QR を復号して URL を照合
 verify*.mjs           Playwright による headless 検証（Chromium / WebKit）
-.github/workflows/    GitHub Pages への自動デプロイ
+.github/workflows/    GitHub Pages への自動デプロイと疎通確認
 docs/                 セルフホスト検証の記録
 ```
 
