@@ -308,18 +308,24 @@ Playwright の合成カメラには視差がないので、**SLAM の精度は�
 ```
 index.html                 エンジン等の script タグ。ライセンス表示もここ
 statemachine-test.html     tracking-ux の状態遷移ハーネス（公開はされない）
+bench.html                 草の描画ベンチ（実機で fps を測る。これは公開される）
 public/
   openin.js                アプリ内ブラウザのガード。Vite が無変換でコピーする
   external/                8th Wall ランタイム。生成物でコミットしない
 src/
   main.ts                  エントリ。window.THREE の公開と tracking-ux の生成
+  bench.ts                 bench.html の中身
   style.css
+  assets/                  草アトラス・GLB・接地影（生成済み・コミット対象）
   xr/
     engine.ts              起動条件の合流、パイプライン構築、セッション開始
     scene.ts               three.js シーン。MYAA-16/17 が置き換える
     placement.ts           タップ座標 -> 世界座標。8th Wall 依存はここだけ
     canvas.ts              キャンバスのサイズ合わせ
     capability.ts          動作環境の判定
+    grass.ts               草の描画。InstancedMesh 1 本、生長/風/消滅は GPU 側
+    tuft-geometry.ts       草カードの形状。three 以外に依存しない
+    perf.ts                フレーム計測と適応解像度
   ui/
     hud.ts                 環境パネルと設置数の表示
     tracking-ux.js         開始ゲート / コーチング / ロスト時リカバリ（素の JS）
@@ -335,8 +341,13 @@ scripts/
 tools/
   make-qr.mjs              QR コードと配布ページの生成
   verify-qr.mjs            生成した QR を復号して URL を照合
+  make-textures.mjs        草アトラスと接地影を生成
+  make-grass-glb.mjs       草の GLB を生成（アルファ形状に切り詰めたカード）
+  verify-geometry.mjs      GLB と手続き生成のジオメトリを突き合わせ
+  compress.mjs             Draco / KTX2 を入れる価値があるかを実測
+  bench.mjs                草の描画コストを headless で計測
 .github/workflows/         GitHub Pages への自動デプロイ
-docs/                      セルフホスト検証の記録
+docs/                      セルフホスト検証の記録 / 草の描画設計メモ
 ```
 
 `placement.ts` に 8th Wall 依存を閉じ込めてあります。配布バイナリはクローズドソースで
