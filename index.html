@@ -37,6 +37,13 @@
     <div id="hud-detail"></div>
   </div>
 
+  <!-- Everything except "basis リセット" and "草を消す" is a developer tool and hides
+       behind this. See src/ui/debug-mode.ts for what counts as which. -->
+  <label id="debug-switch" for="debug-toggle">
+    <input id="debug-toggle" type="checkbox">
+    <span>デバッグ</span>
+  </label>
+
   <button id="diag-toggle" type="button" aria-label="動作環境を表示">i</button>
   <div id="diag-panel" hidden></div>
 

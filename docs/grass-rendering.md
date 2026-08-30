@@ -1,11 +1,14 @@
 # 草アセットと描画（MYAA-17）
 
 草の生成パイプラインと、モバイル向けに最適化した描画モジュール `GrassField` の設計メモ。
+草の中にランダムに咲く `FlowerField`（MYAA-22）も、同じ作りの上に乗っている（末尾）。
 
 ## ファイル
 
 ```
 src/xr/grass.ts         GrassField 本体
+src/xr/flowers.ts       FlowerField（草の中に咲く花）
+src/xr/life-shader.ts   生長 / 消滅 / 距離カルのシェーダ片。草・接地影・花で共有
 src/xr/tuft-geometry.ts カード形状の生成（three 以外に依存しない。理由は後述）
 src/xr/perf.ts          フレーム計測 / 適応解像度
 bench.html + src/bench.ts  実機で fps を測るベンチページ（Vite のもう 1 つの entry）
@@ -13,6 +16,7 @@ src/assets/
   grass.glb           草 1 株（3 枚クロスカード）+ アトラス埋め込み
   grass-atlas.png     2x2 の草アトラス（4 バリエーション）
   grass-atlas.ktx2    KTX2/ETC1S 版（既定では未使用。後述）
+  flower-atlas.png    2x2 の花アトラス（4 バリエーション）
   shadow.png          接地影
   tuft-card.json      GLTFLoader なしで同じ形状を組むためのカード定義
 tools/                アセット生成・圧縮比較・headless 計測
@@ -234,7 +238,7 @@ CI ランタイムには GPU が無く、Chromium は SwiftShader（ソフトウ
 
 `bench.html` をスマホで開き（公開 URL なら `<公開URL>/bench.html`）、**「自動計測」**を押す。
 草 100/300/600/900 株 × DPR 1.0/1.5/2.0 の 12 通りを自動で回して、
-それぞれの平均 fps と **p95 fps** を出す。
+それぞれの平均 fps と **p95 fps** を出す。花は既定で込み（**花** ボタンで外して差分が取れる）。
 
 p95 を見ているのは、20 フレームに 1 回のカクつきは平均には出ないが人間にははっきり分かるため。
 **p95 が 30fps を超えていれば合格**とする。
@@ -252,3 +256,35 @@ SLAM の CPU/GPU 消費は再現できない。MYAA-16 で草が本編に繋が�
 3. `shadows: false`（測定値で 1.47x。影は自前のフィルを削れないので効果が大きい）
 4. `cullFar` を 4.0m から 2.5m に縮める
 5. `capacity` と `perTap` を下げる（**株数はいちばん効かない。6 倍で 1.73 倍**）
+
+---
+
+## 花（MYAA-22）
+
+`src/xr/flowers.ts`。草と同じ作り（`InstancedMesh` 1 本、生長も風も頂点シェーダ、
+`instanceMatrix` は植えたとき 1 回だけ書く）で、違うのは**誰が本数と場所を決めるか**。
+
+```ts
+const flowers = await FlowerField.create({scene, renderer})
+
+// 毎フレーム。草を渡すと、そこから勝手に咲く
+flowers.update(elapsedSeconds, camera, grass)
+```
+
+- **場所は草に借りる。** `GrassField.sampleLive()` が生きている株を 1 つ無作為に返し、
+  そこに咲かせる。位置と姿勢は instance 行列から読み戻すので、**描かれているものと
+  ずれようがない**（並行して座標リストを持たない）
+- **本数も草に借りる。** `density`（既定 0.12 = 草 1 株あたり）× 生存株数が上限で、
+  草が減れば花もその場で引っ込む。「草を消したのに花だけ残る」が構造的に起きない
+- **開く演出**は共通の生長カーブ（`life-shader.ts` の easeOutBack）に、
+  茎まわりの**ねじり戻し**を足したもの。`(1 - open)` ぶんだけカードを回しておいて
+  戻すので、ただ拡大するのではなく花びらが開いて見える。回す向きは instance ごとにランダム
+
+### コスト
+
+ドローコール 1 本とテクスチャバインド 1 つ。カードは**素のクロスクアッド 2 枚**で、
+草のようにアルファ形状へ切り詰めてはいない ── 草は 900 株ぶんのフィルが予算の主役だが、
+花は 100 本前後なので、切り詰めのために 2 つ目のカード定義を持つほうが割に合わない。
+
+`bench.html` の **花** ボタンで切って測れば、そのぶんの取り分がそのまま出る
+（`?flowers=0` でも同じ）。

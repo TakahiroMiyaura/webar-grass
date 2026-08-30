@@ -1,4 +1,4 @@
-// On-device benchmark for the grass field.
+// On-device benchmark for the grass field and the flowers in it.
 //
 // This is the honest route to "100+ tufts at 30fps on a mid-range phone": that number
 // cannot be established on a CI box, so the check ships as a page you open on the
@@ -9,6 +9,7 @@
 // lower; treat the gap as the SLAM budget.
 import * as THREE from 'three'
 import {GrassField} from './xr/grass'
+import {FlowerField} from './xr/flowers'
 import {FrameMeter, type FrameStats} from './xr/perf'
 
 const qs = new URLSearchParams(location.search)
@@ -21,6 +22,8 @@ interface BenchState {
   dpr: number
   shadows: boolean
   feed: boolean
+  /** Flowers are a second draw call and extra fill; this is how their share is read. */
+  flowers: boolean
 }
 
 const state: BenchState = {
@@ -29,6 +32,7 @@ const state: BenchState = {
   dpr: num('dpr', 1.5),
   shadows: num('shadows', 1) !== 0,
   feed: num('feed', 1) !== 0,
+  flowers: num('flowers', 1) !== 0,
 }
 
 const el = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T
@@ -65,6 +69,7 @@ const t0 = performance.now()
 const elapsed = (): number => (performance.now() - t0) / 1000
 
 let grass: GrassField
+let flowers: FlowerField
 
 const makeField = (shadows: boolean): Promise<GrassField> => {
   const opts = {
@@ -88,6 +93,7 @@ window.addEventListener('resize', resize)
 /** Plants `n` tufts over a table-sized patch, in clumps, the way a tap would. */
 const populate = (n: number): void => {
   grass.reset()
+  flowers.reset()
   const per = grass.opts.perTap
   for (let i = 0; i < Math.ceil(n / per); i++) {
     const a = Math.random() * Math.PI * 2
@@ -98,6 +104,17 @@ const populate = (n: number): void => {
       {count: Math.min(per, n - i * per)},
     )
   }
+  // Opened up front rather than left to the timer: the bench has to measure the field at
+  // its full population, not whatever had happened to bloom by the time it sampled.
+  if (state.flowers) {
+    const spot = new THREE.Vector3()
+    const up = new THREE.Vector3()
+    const target = Math.round(n * flowers.opts.density)
+    for (let i = 0; i < target; i++) {
+      if (grass.sampleLive(spot, up)) flowers.bloom(spot, up)
+    }
+  }
+  flowers.mesh.visible = state.flowers
   meter.reset()
 }
 
@@ -110,6 +127,7 @@ const syncButtons = (): void => {
     .forEach(b => b.classList.toggle('on', Number(b.dataset.dpr) === state.dpr))
   el('shadowBtn').classList.toggle('on', state.shadows)
   el('feedBtn').classList.toggle('on', state.feed)
+  el('flowerBtn').classList.toggle('on', state.flowers)
   hud.n.textContent = String(state.n)
   hud.dpr.textContent = state.dpr.toFixed(1)
 }
@@ -126,6 +144,9 @@ const loop = (): void => {
   camera.lookAt(0, 0.06, 0)
 
   grass.update(t, camera)
+  // No garden passed in: the bench sets the population itself, so the spontaneous
+  // blooming must not add to it mid-measurement.
+  flowers.update(t, camera)
 
   // renderer.info resets at the start of every render(); with two render() calls per
   // frame the counter would otherwise only ever show the second one.
@@ -147,7 +168,9 @@ const loop = (): void => {
       : '計測中…'
     window.__bench = {
       ...(s ?? {}), calls: r.calls, triangles: r.triangles,
-      live: grass.liveCount, n: state.n, dpr: state.dpr, shadows: state.shadows, feed: state.feed,
+      live: grass.liveCount, flowersLive: flowers.liveCount,
+      n: state.n, dpr: state.dpr, shadows: state.shadows, feed: state.feed,
+      flowers: state.flowers,
     }
   }
 }
@@ -186,6 +209,7 @@ document.querySelectorAll<HTMLElement>('[data-dpr]').forEach(b => {
 })
 el('shadowBtn').onclick = () => { void setState({shadows: !state.shadows}) }
 el('feedBtn').onclick = () => { void setState({feed: !state.feed}) }
+el('flowerBtn').onclick = () => { void setState({flowers: !state.flowers}) }
 
 el('sweepBtn').onclick = async () => {
   const out: string[] = []
@@ -207,6 +231,7 @@ el('sweepBtn').onclick = async () => {
 const boot = async (): Promise<void> => {
   try {
     grass = await makeField(state.shadows)
+    flowers = await FlowerField.create({scene, renderer, cullNear: 100, cullFar: 101})
   } catch (e) {
     hud.result.textContent = String((e as Error)?.message ?? e)
     throw e

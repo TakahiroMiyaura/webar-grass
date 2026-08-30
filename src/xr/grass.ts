@@ -35,6 +35,7 @@ import shadowUrl from '../assets/shadow.png'
 import grassGlbUrl from '../assets/grass.glb?url'
 import tuftCard from '../assets/tuft-card.json'
 import {buildTuftGeometry, type TuftCard} from './tuft-geometry'
+import {ATLAS_CELL_UV, LIFE_COMMON, LIFE_SCALE_BODY} from './life-shader'
 
 /** Seconds a retiring tuft takes to shrink away before its slot is reused. */
 const RETIRE_SEC = 0.45
@@ -85,48 +86,15 @@ const DEFAULTS: Omit<ResolvedOptions, 'scene' | 'renderer'> = {
 
 // ---------------------------------------------------------------------------
 // Shader injection, shared by the grass material and the shadow material. Both need
-// the same growth/retire/cull curve so a shadow appears and leaves with its tuft.
-
-const COMMON = /* glsl */`
-  attribute vec2 aLife;   // x = plant time, y = retire time (NOT_RETIRING while alive)
-  attribute vec3 aRand;   // x = wind phase, y = atlas cell index, z = spare
-  uniform float uTime;
-  uniform float uGrow;
-  uniform float uRetire;
-  uniform float uWind;
-  uniform float uWindSpeed;
-  uniform vec2  uCull;    // x = fade start, y = fully gone
-  uniform vec3  uEye;
-
-  // easeOutBack: a small overshoot so a tuft visibly pops rather than fading in.
-  float growCurve(float t) {
-    t = clamp(t, 0.0, 1.0);
-    float c = 1.70158, c3 = c + 1.0;
-    float p = t - 1.0;
-    return 1.0 + c3 * p * p * p + c * p * p;
-  }
-`
-
-const SCALE_BODY = /* glsl */`
-  vec3 iPos = (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
-
-  float grow   = growCurve((uTime - aLife.x) / uGrow);
-  float retire = 1.0 - smoothstep(0.0, uRetire, uTime - aLife.y);
-  // Distance cull. Collapsing the instance to zero produces degenerate triangles, which
-  // the rasteriser drops before any fragment work -- the whole point, since fill is what
-  // this scene is short of. Vertex cost stays, but that is the cheap side.
-  float dist   = distance(iPos, uEye);
-  float near   = 1.0 - smoothstep(uCull.x, uCull.y, dist);
-
-  float scale = max(grow, 0.0) * retire * near;
-`
+// the same growth/retire/cull curve so a shadow appears and leaves with its tuft --
+// and so does flowers.ts, which is why the curve itself lives in life-shader.ts.
 
 const injectGrass = (shader: THREE.WebGLProgramParametersWithUniforms): void => {
   shader.vertexShader = shader.vertexShader
-    .replace('#include <common>', `#include <common>\n${COMMON}`)
+    .replace('#include <common>', `#include <common>\n${LIFE_COMMON}`)
     .replace('#include <begin_vertex>', /* glsl */`
       #include <begin_vertex>
-      ${SCALE_BODY}
+      ${LIFE_SCALE_BODY}
 
       // Sway only the upper part of the blade, quadratically, so the base stays
       // planted. position.y is 0..1 in the authored tuft.
@@ -145,24 +113,18 @@ const injectGrass = (shader: THREE.WebGLProgramParametersWithUniforms): void => 
       transformed.z += sway * 0.35;
       transformed *= scale;
     `)
-    // Offset into one of the four atlas cells. The geometry is authored inside the
-    // inset region of cell (0,0); the gutter is what keeps mip filtering from sampling
-    // the neighbouring tuft.
     .replace('#include <uv_vertex>', /* glsl */`
       #include <uv_vertex>
-      #ifdef USE_MAP
-        float cell = floor(aRand.y + 0.5);
-        vMapUv += vec2(mod(cell, 2.0), floor(cell * 0.5)) * 0.5;
-      #endif
+      ${ATLAS_CELL_UV}
     `)
 }
 
 const injectShadow = (shader: THREE.WebGLProgramParametersWithUniforms): void => {
   shader.vertexShader = shader.vertexShader
-    .replace('#include <common>', `#include <common>\n${COMMON}`)
+    .replace('#include <common>', `#include <common>\n${LIFE_COMMON}`)
     .replace('#include <begin_vertex>', `
       #include <begin_vertex>
-      ${SCALE_BODY}
+      ${LIFE_SCALE_BODY}
       transformed *= scale;
     `)
 }
@@ -333,6 +295,26 @@ export class GrassField {
 
   /** Tufts currently alive (excludes ones shrinking away). */
   get liveCount(): number { return this.live.length }
+
+  /**
+   * Reads back one random live tuft: where it sits and which way it points. This is how
+   * flowers.ts finds somewhere to bloom without either field knowing about the other --
+   * a flower belongs in the grass, not at an arbitrary point in the room.
+   *
+   * The matrix is the source of truth rather than a parallel list of positions, so this
+   * cannot drift out of step with what is actually drawn. The per-tuft spin is about the
+   * surface normal, so decomposing it still gives that normal back.
+   *
+   * @returns false when nothing is planted; `position` and `normal` are then untouched.
+   */
+  sampleLive(position: THREE.Vector3, normal: THREE.Vector3): boolean {
+    if (!this.live.length) return false
+    const slot = this.live[Math.floor(Math.random() * this.live.length)]
+    this.mesh.getMatrixAt(slot, this._m)
+    this._m.decompose(position, this._q, this._scale)
+    normal.set(0, 1, 0).applyQuaternion(this._q).normalize()
+    return true
+  }
 
   /**
    * Plants a clump around `position`, oriented to `normal`.

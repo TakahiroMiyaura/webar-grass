@@ -8,7 +8,7 @@
 // The DOM is built here rather than in index.html so this drops into a page that
 // tracking-ux is already decorating without the two fighting over markup. Toasts are not
 // duplicated either: they belong to tracking-ux, and it is passed in.
-import type {PlacementMode, ResolveRecord} from '../xr/placement'
+import {DEFAULT_MODE, Mode, type PlacementMode, type ResolveRecord} from '../xr/placement'
 
 const fmt = (v: number | null | undefined, d = 2): string =>
   (typeof v === 'number' && Number.isFinite(v) ? v.toFixed(d) : '—')
@@ -52,17 +52,22 @@ export class PlacementPanel {
 
     const controls = document.createElement('div')
     controls.className = 'pp-controls'
+    // pp-debug marks what only a developer needs. The row is built either way and the
+    // stylesheet decides whether it is on screen, so nothing downstream has to know.
+    const seg = (mode: PlacementMode, label: string): string =>
+      `<button type="button" data-mode="${mode}" ` +
+      `aria-pressed="${mode === DEFAULT_MODE}">${label}</button>`
     controls.innerHTML = `
-      <div class="pp-row">
+      <div class="pp-row pp-debug">
         <div class="pp-seg" role="group" aria-label="設置方式">
           <span class="pp-seg-label">方式</span>
-          <button type="button" data-mode="AUTO" aria-pressed="true">自動</button>
-          <button type="button" data-mode="PLANE" aria-pressed="false">A 基準面</button>
-          <button type="button" data-mode="HITTEST" aria-pressed="false">B hitTest</button>
+          ${seg(Mode.AUTO, '自動')}
+          ${seg(Mode.PLANE, 'A 基準面')}
+          ${seg(Mode.HITTEST, 'B hitTest')}
         </div>
       </div>
       <div class="pp-row">
-        <button type="button" data-act="calibrate">この面を基準にする</button>
+        <button type="button" class="pp-debug" data-act="calibrate">この面を基準にする</button>
         <button type="button" data-act="recenter">basis リセット</button>
         <button type="button" data-act="clear">草を消す</button>
       </div>`
