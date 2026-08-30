@@ -33,6 +33,10 @@ export default defineConfig({
         // "100+ tufts at 30fps on a mid-range phone" can only be settled on a real
         // device, and the device reaches it through the deployed URL.
         bench: 'bench.html',
+        // Placement checked against known geometry (floor at 0, table top at 0.75).
+        // Published for the same reason as bench.html: the A/B comparison it supports
+        // has to be repeatable on the device that finally settles it.
+        placementPreview: 'placement-preview.html',
       },
     },
   },

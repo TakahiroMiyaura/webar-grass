@@ -120,6 +120,78 @@ ngrok http 5173
 `mkcert` でローカル CA を作り、その CA を iPhone にインストールして信頼設定まで行えば
 自己署名でも動きますが、端末側の手数が多いのでトンネルを推奨します。
 
+## タップした位置に草を生やす
+
+タップした場所の面に草が生え、端末を動かしてもその場に留まる（6DoF）。
+床だけでなく**机の上など床以外の高さ**に乗せることが要件。
+
+### 設置面をどう決めているか
+
+争点は「床にしか置けない方式で要件を満たせるか」だった。**実機がないと決められない**ので、
+両方式を実装して既定 AUTO ＋ **画面下のスイッチで切り替えられる**形にした。
+
+| 方式 | 中身 | 強み | 弱み |
+|---|---|---|---|
+| **A** 基準面 | 不可視の水平面 1 枚に three.js Raycaster | 常に答えが返る・ぶれない | 高さが 1 つだけ。机を狙っても床に落ちる |
+| **B** hitTest | `XR8.XrController.hitTest()` | 面ごとの高さを拾える | ノイズが乗る・返らないことがある |
+| **AUTO** | B を採用し、A で検算する | 机に乗り、外れたら A に落ちる | しきい値は実機で詰める必要あり |
+
+AUTO は「**A を土台に、A で足りないところを B が埋める**」形。A は基準の高さを与えると同時に
+**B の検算役**で、B の結果は次を通ったときだけ採用する（`src/xr/placement.ts` の `LIMITS`）。
+
+- 基準面より **12cm 以上下** → 却下（床下に面はない）／ **2m 以上上** → 却下
+- カメラから 0.2m 未満 / 8m 超 → 却下
+- クラスタ内のサンプルが **25cm 以上ばらけている** → 却下
+- **他のサンプルが 1 つも支持しない孤立値**で、かつ engine が `FEATURE_POINT` としか言っていない → 却下
+
+### hitTest は 1 回ではなく 5 回引いている
+
+タップ点とその上下左右 ±10px の 5 点を引き、**タップ点を基準に**同じ高さ（±10cm）の
+サンプルだけを集めて中央値を取る。単純な中央値にしなかったのは**机の縁で壊れる**ため
+— 縁を狙うと周囲のサンプルが机を越えて 75cm 下の床に落ち、中央値は「机でも床でもない高さ」に
+なるか、ばらつき過大として捨てられる。どちらでも狙った机に乗らない。
+指の下の面を基準にすれば、別の面に属するサンプルだけが落ちる。
+
+### 基準面を机に合わせる
+
+A の「高さが 1 つだけ」という弱点には手当てがある。机を映して**「この面を基準にする」**を押すと、
+そのときの hitTest の読みを基準面の高さに採用する（5 サンプルの**過半数**が一致したときだけ。
+基準面は以降の全タップに効くので、1 回の配置より厳しくしている）。以降は A だけでも机の高さに乗る。
+
+`basis リセット` は `XR8.XrController.recenter()` を呼んで基準面を 0 に戻す。原点が動くと
+既存の草は現実と対応しなくなるので、**このとき草は消える**。
+
+### 実装上の落とし穴
+
+- **`hitTest()` が返す `rotation` は、これまで観測した全件で `{0,0,0,0}` だった。**
+  ノルム 0 のクォータニオンは回転ではなく、three.js に渡すと NaN になってオブジェクトが消える。
+  正規化できない回転はすべて捨ててワールド上向きにフォールバックしている
+  （`normalFromRotation`）。engine が本物の姿勢を返し始めたら自動的にそちらが使われる
+- **`position` が `{null,null,null}` で返ることがある。** 原点として扱うと足元に草が生える
+- **タップは pointer events で拾っている。** touchend と click の両方を見ると合成 click を
+  弾く必要があり、`preventDefault` が届かない経路では時間で弾くしかない。これが不安定で、
+  **SLAM のループがメインスレッドを止めて `setTimeout` が数百 ms 遅れ、実測で約半分のタップが
+  二重発火した**。pointerdown なら 1 タップ = 1 イベントで済む
+
+### 実機で決めること（残作業）
+
+**A と B のどちらが要件に合うかの最終判断は未了**（実機がないため）。
+判断材料が集まるように、アプリ内に計測パネル（右上の 📊）を入れてある。
+
+1. 机を映して起動し、`AUTO` のままタップする
+2. パネルに、タップごとの **A の高さ / B の高さ / type / 採用したほう / 理由**が出る
+3. 方式スイッチを `A` `B` に切り替えて同じ面を狙い、見え方を比べる
+4. 「ログをコピー」で JSON を吸い出す（クリップボードが弾かれたらファイル保存にフォールバック）
+
+見るべき点：
+
+- **`type` に `ESTIMATED_SURFACE` / `DETECTED_SURFACE` が出るか。** headless の合成映像では
+  `FEATURE_POINT` しか出ない。ここが `FEATURE_POINT` だけなら孤立値の却下条件が効きすぎて
+  机の縁を拾えないかもしれない（`LIMITS` の調整対象）
+- **机を狙ったとき `|B − A|` が机の高さぶん（0.7m 前後）になるか。** 0 に近いなら B は床しか
+  見ておらず、案 A + 手動キャリブレーションに寄せる判断になる
+- **却下理由の内訳。** `spread` ばかりなら `spreadMax` が厳しすぎる
+
 ## 非対応環境の確認
 
 右上の **ⓘ** ボタン、または `?diag=1` を付けて開くと、判定結果のパネルが出ます。
@@ -280,6 +352,23 @@ GitHub Pages の実測値。**`.wasm` の Content-Type 事故は起きない**�
 ## 動作確認（headless）
 
 ```bash
+npm run test:placement              # 設置判定 A/B/AUTO の全分岐（33 件、ブラウザ不要）
+npm run build
+npm run verify:placement-preview    # 既知ジオメトリ（床 y=0・机 y=0.75）に実描画（8 件）
+npm run verify:placement            # 実エンジンで通し（Chromium / WebKit・25 件 ×2）
+```
+
+`verify:placement-preview` は、床と机を置いた three.js シーンに対して
+「SLAM が完璧だったら」を模した raycast を hitTest の代わりに刺す。
+**机の上を狙った 15 タップすべてが 0.75m に、床を狙った 10 タップすべてが 0m に解決され、
+植わった 100 株すべてが面に対して直立している**ことを確認している。
+＝ 判定ロジックは机と床を取り違えない。
+
+確かめられていないのは**実機の SLAM がその高さを返してくれるか**で、
+これは合成映像では原理的に出せない（上記「実機で決めること」）。
+
+
+```bash
 npx playwright install --with-deps chromium webkit
 npm run build
 
@@ -308,6 +397,7 @@ Playwright の合成カメラには視差がないので、**SLAM の精度は�
 ```
 index.html                 エンジン等の script タグ。ライセンス表示もここ
 statemachine-test.html     tracking-ux の状態遷移ハーネス（公開はされない）
+placement-preview.html     既知ジオメトリでの設置検証ハーネス（公開はされない）
 bench.html                 草の描画ベンチ（実機で fps を測る。これは公開される）
 public/
   openin.js                アプリ内ブラウザのガード。Vite が無変換でコピーする
@@ -315,12 +405,13 @@ public/
 src/
   main.ts                  エントリ。window.THREE の公開と tracking-ux の生成
   bench.ts                 bench.html の中身
+  placement-preview.ts     placement-preview.html の中身（合成ジオメトリでの設置検証）
   style.css
   assets/                  草アトラス・GLB・接地影（生成済み・コミット対象）
   xr/
     engine.ts              起動条件の合流、パイプライン構築、セッション開始
-    scene.ts               three.js シーン。MYAA-16/17 が置き換える
-    placement.ts           タップ座標 -> 世界座標。8th Wall 依存はここだけ
+    scene.ts               three.js シーン。タップ処理と各モジュールの配線
+    placement.ts           タップ座標 -> 世界座標。A / B / AUTO の判定はここ
     canvas.ts              キャンバスのサイズ合わせ
     capability.ts          動作環境の判定
     grass.ts               草の描画。InstancedMesh 1 本、生長/風/消滅は GPU 側
@@ -328,6 +419,8 @@ src/
     perf.ts                フレーム計測と適応解像度
   ui/
     hud.ts                 環境パネルと設置数の表示
+    placement-panel.ts     方式スイッチと A/B 計測パネル
+    placement-panel.css
     tracking-ux.js         開始ゲート / コーチング / ロスト時リカバリ（素の JS）
     tracking-ux.css
     tracking-ux-types.ts   上記の型を実装から導出する
@@ -338,6 +431,9 @@ scripts/
   verify.mjs               カメラ映像 + 3D 描画の headless 確認
   verify-tracking-ux.mjs   トラッキング UX の headless 確認
   verify-inapp.mjs         アプリ内ブラウザガードの headless 確認
+  test-placement.mjs       設置判定のユニットテスト（ブラウザ不要）
+  verify-placement.mjs     実エンジンでの設置の headless 確認
+  verify-placement-preview.mjs  既知ジオメトリでの設置の headless 確認
 tools/
   make-qr.mjs              QR コードと配布ページの生成
   verify-qr.mjs            生成した QR を復号して URL を照合
