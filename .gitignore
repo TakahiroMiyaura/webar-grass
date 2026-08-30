@@ -13,3 +13,6 @@ web/vendor/
 web/qr.png
 web/qr.svg
 web/share.html
+
+# Verification logs
+*.log
