@@ -1,0 +1,31 @@
+{
+  "name": "webar-grass",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "スマートフォン向け WebAR コンテンツ（8th Wall Engine セルフホスト + three.js）",
+  "scripts": {
+    "postinstall": "node scripts/sync-vendor.mjs",
+    "predev": "node scripts/sync-vendor.mjs",
+    "dev": "vite",
+    "prebuild": "node scripts/sync-vendor.mjs",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "verify": "node scripts/verify.mjs"
+  },
+  "dependencies": {
+    "three": "0.183.2"
+  },
+  "devDependencies": {
+    "@8thwall/coaching-overlay": "1.0.0",
+    "@8thwall/engine-binary": "1.0.0",
+    "@8thwall/landing-page": "1.0.0",
+    "@8thwall/xrextras": "1.0.0",
+    "@types/node": "^22.10.0",
+    "@types/three": "0.183.1",
+    "playwright": "^1.62.1",
+    "typescript": "^5.6.0",
+    "vite": "^8.2.2"
+  }
+}

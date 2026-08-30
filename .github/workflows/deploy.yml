@@ -1,5 +1,5 @@
-# Publishes web/ to GitHub Pages. The 8th Wall engine binary and three.js are
-# fetched at build time by setup.sh, so neither is committed to the repository.
+# Publishes the Vite build to GitHub Pages. The 8th Wall engine binary and three.js are
+# fetched from npm at build time, so neither is committed to the repository.
 name: Deploy to GitHub Pages
 
 on:
@@ -24,13 +24,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - name: Fetch three.js and the 8th Wall engine binary
-        run: ./setup.sh
-      - name: Drop the unused face/semantics payload (~24MB)
-        run: rm -rf web/external/xr/resources web/external/xr/xr-face.js
+          cache: npm
+      # postinstall runs scripts/sync-vendor.mjs, which places the 8th Wall runtime
+      # under public/external/ and drops the unused face/semantics payload (~24 MB).
+      - run: npm ci
+      - run: npm run build
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: ./web
+          path: ./dist
 
   deploy:
     needs: build
