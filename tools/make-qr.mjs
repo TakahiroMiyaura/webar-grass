@@ -6,28 +6,11 @@
 import QRCode from 'qrcode'
 import fs from 'node:fs'
 import path from 'node:path'
+import {publishedUrl} from './published-url.mjs'
 
 const outDir = 'dist'
 
-function publishedUrl() {
-  if (process.argv[2]) return process.argv[2]
-
-  // GitHub Pages URL rules: a repo named "<owner>.github.io" publishes at the domain
-  // root, anything else publishes under /<repo>/. A CNAME file overrides both.
-  const repo = process.env.GITHUB_REPOSITORY
-  if (!repo) {
-    throw new Error('pass a URL as the first argument, or set GITHUB_REPOSITORY')
-  }
-  const [owner, name] = repo.split('/')
-  const cname = path.join(outDir, 'CNAME')
-  if (fs.existsSync(cname)) {
-    return 'https://' + fs.readFileSync(cname, 'utf8').trim().replace(/\/+$/, '') + '/'
-  }
-  const host = owner.toLowerCase() + '.github.io'
-  return name.toLowerCase() === host ? `https://${host}/` : `https://${host}/${name}/`
-}
-
-const url = publishedUrl()
+const url = publishedUrl(process.argv[2], outDir)
 
 // Error correction M with a quiet zone: scans reliably off a phone screen and survives
 // a logo or a fold if the sheet gets printed.
