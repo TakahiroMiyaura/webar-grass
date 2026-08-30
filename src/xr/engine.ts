@@ -4,6 +4,7 @@ import type {TrackingUx} from '../ui/tracking-ux-types'
 import type {SceneDiagnostics} from './scene'
 import {createScenePipelineModule} from './scene'
 import {inspectEngine} from './capability'
+import {createCameraFovModule} from './camera-fov'
 import {fitCanvas, watchCanvasSize} from './canvas'
 import {hasBlockingEnvironment, openDiagnostics, setStatus} from '../ui/hud'
 
@@ -48,6 +49,10 @@ const buildPipeline = (
 
   LandingPage.pipelineModule(),
   CoachingOverlay.pipelineModule(),
+
+  // Ahead of the tracking UX so the renegotiation starts on the same frame the feed
+  // arrives, before world tracking has had anything to converge on (MYAA-23).
+  createCameraFovModule(diagnostics.events),
 
   // Owns coaching, loss recovery, the permission error screen and the answer to a
   // tap that lands before tracking is usable.
