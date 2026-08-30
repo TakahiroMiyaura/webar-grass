@@ -1,0 +1,9 @@
+node_modules/
+cert/
+tmp-three/
+tmp-engine/
+shot-*.png
+# Fetched by setup.sh — not committed. The engine binary is under the
+# XR Engine License Agreement and is redistributed only in its original form.
+web/external/
+web/vendor/
