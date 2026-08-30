@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>設置面の検証（合成ジオメトリ）</title>
+  <style>
+    html, body {margin: 0; height: 100%; background: #11150f; overflow: hidden;}
+    canvas {display: block;}
+    #cap {
+      position: absolute; left: 0; right: 0; bottom: 0; padding: 10px 14px;
+      color: #cfe6c0; background: rgba(0, 0, 0, .55);
+      font: 12px/1.5 -apple-system, BlinkMacSystemFont, "Noto Sans JP", sans-serif;
+    }
+  </style>
+</head>
+<body>
+  <div id="cap">合成ジオメトリでの検証：床（y=0）と机（y=0.75）にタップ配置。実機の SLAM ではありません。</div>
+  <script type="module" src="/src/placement-preview.ts"></script>
+</body>
+</html>
