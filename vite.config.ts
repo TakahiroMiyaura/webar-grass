@@ -29,6 +29,10 @@ export default defineConfig({
         // can drive the same bundle that ships; the deploy workflow deletes it from
         // dist/ before upload so it is never published.
         statemachine: 'statemachine-test.html',
+        // The grass render benchmark. Unlike the harness above this one IS published:
+        // "100+ tufts at 30fps on a mid-range phone" can only be settled on a real
+        // device, and the device reaches it through the deployed URL.
+        bench: 'bench.html',
       },
     },
   },

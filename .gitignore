@@ -10,3 +10,6 @@ public/external/
 # Headless verification output.
 screenshots/
 shot-*.png
+
+# tools/ scratch output: compression variants, benchmark screenshots and logs.
+build/
