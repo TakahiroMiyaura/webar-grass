@@ -1,0 +1,23 @@
+{
+  "name": "webar-grass",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Smartphone WebAR: tap a surface and grass grows there. Self-hosted 8th Wall Engine + three.js, published on GitHub Pages.",
+  "license": "MIT",
+  "scripts": {
+    "setup": "./setup.sh",
+    "start": "node serve.mjs",
+    "qr": "node tools/make-qr.mjs",
+    "verify": "node verify.mjs",
+    "verify:pages": "node verify-pages.mjs",
+    "verify:inapp": "node verify-inapp.mjs"
+  },
+  "dependencies": {
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "jsqr": "^1.4.0",
+    "playwright": "^1.56.1",
+    "pngjs": "^7.0.0"
+  }
+}

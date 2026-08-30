@@ -9,6 +9,8 @@
     Copyright (c) 2026 Niantic Spatial, Inc. All rights reserved.
     License: https://github.com/8thwall/engine/blob/main/LICENSE
   -->
+  <!-- Runs before the engine so an in-app webview never reaches the camera prompt. -->
+  <script src="./openin.js"></script>
   <!-- Self-hosted engine binary. No CDN, no app key, no account. -->
   <script src="./external/xr/xr.js" async data-preload-chunks="slam"></script>
   <style>

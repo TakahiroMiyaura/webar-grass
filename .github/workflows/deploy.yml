@@ -1,5 +1,5 @@
-# Publishes web/ to GitHub Pages. The 8th Wall engine binary and three.js are
-# fetched at build time by setup.sh, so neither is committed to the repository.
+# Publishes web/ to GitHub Pages. The 8th Wall engine binary and three.js are fetched
+# at build time by setup.sh, so neither is committed to the repository.
 name: Deploy to GitHub Pages
 
 on:
@@ -24,10 +24,31 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+
       - name: Fetch three.js and the 8th Wall engine binary
         run: ./setup.sh
-      - name: Drop the unused face/semantics payload (~24MB)
+
+      # world tracking needs xr.js + xr-slam.js only. The face/semantics models and
+      # workers are ~24MB of payload this experience never loads.
+      - name: Drop the unused face/semantics payload
         run: rm -rf web/external/xr/resources web/external/xr/xr-face.js
+
+      # The engine binary is redistributed unmodified and its licence text ships with
+      # it. Losing this file would put the deployment out of licence compliance.
+      - name: Check the engine licence text is present
+        run: test -s web/external/xr/LICENSE
+
+      - name: Install QR tooling
+        run: npm install --omit=dev --no-audit --no-fund
+
+      # Derives the URL from the repository, so the QR always matches where this build
+      # is actually being published to.
+      - name: Generate the QR code and hand-out page
+        run: node tools/make-qr.mjs
+
+      - name: Report deployed payload size
+        run: du -sh web && du -sh web/external/xr/*
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: ./web
@@ -38,6 +59,60 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+    outputs:
+      page_url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
+
+  # A deploy that "succeeds" while serving a 404 or the wrong content type still leaves
+  # a black screen on the phone. Fetch the live site and assert the boot path is intact.
+  smoke:
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify the published site
+        env:
+          BASE: ${{ needs.deploy.outputs.page_url }}
+        run: |
+          set -uo pipefail
+          echo "checking $BASE"
+          fail=0
+
+          check() {
+            path="$1"; want_type="$2"
+            url="${BASE%/}/$path"
+            code=000
+            # Pages can take a few seconds to start serving a fresh deployment.
+            for attempt in 1 2 3 4 5; do
+              code=$(curl -sL -o /dev/null -w '%{http_code}' "$url") || code=000
+              [ "$code" = "200" ] && break
+              sleep 5
+            done
+            type=$(curl -sIL "$url" | awk 'BEGIN{IGNORECASE=1} /^content-type:/{print tolower($2)}' | tail -1)
+            if [ "$code" != "200" ]; then
+              echo "FAIL $path -> HTTP $code"
+              fail=1
+            elif ! printf '%s' "$type" | grep -qi -- "$want_type"; then
+              echo "FAIL $path -> content-type '$type', wanted '$want_type'"
+              fail=1
+            else
+              echo "ok   $path -> $code $type"
+            fi
+          }
+
+          check ""                        "text/html"
+          check "app.js"                  "javascript"
+          check "openin.js"               "javascript"
+          check "external/xr/xr.js"       "javascript"
+          check "external/xr/xr-slam.js"  "javascript"
+          check "share.html"              "text/html"
+          check "qr.png"                  "image/png"
+
+          # gzip is what keeps the ~6.5MB engine to roughly a third of that over the wire.
+          enc=$(curl -sL -o /dev/null -H 'Accept-Encoding: gzip' \
+                -w '%header{content-encoding}' "${BASE%/}/external/xr/xr-slam.js")
+          echo "engine content-encoding: ${enc:-none}"
+          [ "$enc" = "gzip" ] || echo "WARN engine is not being served compressed"
+
+          exit $fail
