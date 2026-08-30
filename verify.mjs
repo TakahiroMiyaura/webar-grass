@@ -49,19 +49,30 @@ async function run(name, launcher, opts, ua, host) {
   page.on('requestfailed', r => console.log('  FAILED:', r.url().slice(0,150), r.failure() && r.failure().errorText))
   page.on('response', r => { if (r.status()>=400) console.log('  HTTP', r.status(), r.url().slice(0,150)) })
   await page.goto(host, {waitUntil:'load'})
-  await page.waitForTimeout(20000)
+  // The experience now starts on a tap (see web/tracking-ux.js), so nothing runs
+  // until the gate is dismissed.
+  await page.waitForSelector('[data-tux="gate"]')
+  await page.click('[data-tux="gate"]')
+  // Taps are refused until tracking reports NORMAL, so wait for that rather than a
+  // fixed sleep. If it never arrives the run still reports what it got to.
+  await page.waitForFunction(() => window.__trackingUx && window.__trackingUx.isReady(),
+    null, {timeout: 40000}).catch(() => console.log('  (tracking never reached NORMAL)'))
+  await page.waitForTimeout(2000)
   // Exercise the tap -> hitTest -> place path.
   for (let i = 0; i < 6; i++) {
     await page.evaluate(() => document.getElementById('camerafeed').click())
     await page.waitForTimeout(500)
   }
   const d = (await page.evaluate(() => window.__diag)) || {events:['(no __diag: module never ran)'],hitTests:[],errors:[],placed:0}
+  const uxPhase = await page.evaluate(() => window.__trackingUx && window.__trackingUx.state.phase)
   const shot = `shot-${name}.png`
   await page.screenshot({path: shot})
   console.log(`\n########## ${name}`)
   d.events.forEach(e=>console.log('  ev: '+e))
   console.log('  hitTest samples: ' + JSON.stringify(d.hitTests.slice(0,2)))
-  console.log('  cubes placed: ' + d.placed)
+  console.log('  tracking-ux phase: ' + uxPhase)
+  console.log('  cubes placed: ' + d.placed + '  (taps rejected: ' + (d.rejected ?? 0) +
+    ', hit-test misses: ' + (d.missed ?? 0) + ')')
   console.log('  errors: ' + (d.errors.length ? JSON.stringify(d.errors) : '(none)'))
   console.log('  EXTERNAL REQUESTS: ' + (external.length ? JSON.stringify([...new Set(external)]) : '(none)'))
   console.log('  screenshot: ' + shot)

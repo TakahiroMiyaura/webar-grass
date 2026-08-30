@@ -3,55 +3,45 @@
 // Deliberately free of any runtime CDN dependency so the "does self-hosting work
 // with no account and no app key" question is answered by running this page.
 import * as THREE from './vendor/three.module.js'
+import {createTrackingUx} from './tracking-ux.js'
 
 // XR8.Threejs.pipelineModule() builds its scene from the global THREE.
 window.THREE = THREE
 
-const statusEl = document.getElementById('status')
-const detailEl = document.getElementById('detail')
-const setStatus = (s, d) => { statusEl.textContent = s; if (d !== undefined) detailEl.textContent = d }
+// Owns the start gate, the coaching/recovery guidance and the answer to a tap that
+// arrives before tracking is usable. See tracking-ux.js.
+const ux = createTrackingUx().mount()
+const hudEl = document.getElementById('hud')
 
 // Diagnostics kept on window so a headless probe can read them.
-const diag = window.__diag = {events: [], errors: [], hitTests: [], placed: 0}
+const diag = window.__diag = {events: [], errors: [], hitTests: [], placed: 0,
+  rejected: 0, missed: 0}
 const log = (m) => { diag.events.push(String(m)); console.log('[8W] ' + m) }
 
-let scene, camera, cubes = 0
+let scene, cubes = 0
 const HIT_TYPES = ['FEATURE_POINT', 'ESTIMATED_SURFACE', 'DETECTED_SURFACE', 'UNSPECIFIED']
 
 const scenePipelineModule = () => ({
   name: 'grassdemo',
   onStart: ({canvas}) => {
+    let camera
     ;({scene, camera} = XR8.Threejs.xrScene())
     scene.add(new THREE.AmbientLight(0xffffff, 1.2))
     const dir = new THREE.DirectionalLight(0xffffff, 1.6)
     dir.position.set(1, 4.3, 2.5)
     scene.add(dir)
 
-    // A ground-plane reticle so it is obvious when tracking has a surface.
-    const reticle = new THREE.Mesh(
-      new THREE.RingGeometry(0.08, 0.1, 32).rotateX(-Math.PI / 2),
-      new THREE.MeshBasicMaterial({color: 0x44ff88, transparent: true, opacity: 0.9})
-    )
-    reticle.visible = false
-    scene.add(reticle)
-    window.__reticle = reticle
-
-    canvas.addEventListener('touchstart', onTap, {passive: false})
+    // No ground reticle and no centre crosshair: placement happens at the tap point,
+    // and MYAA-15 rules both out. Guidance comes from tracking-ux instead.
+    canvas.addEventListener('touchend', onTap, {passive: false})
     canvas.addEventListener('click', onTap)
     XR8.XrController.updateCameraProjectionMatrix({origin: camera.position, facing: camera.quaternion})
     log('scene ready')
   },
   onUpdate: () => {
-    // Keep a reticle on whatever the center of the screen is pointing at.
-    const hit = hitTestAt(0.5, 0.5)
-    const r = window.__reticle
-    if (hit && hit.position && hit.position.x !== null) {
-      r.visible = true
-      r.position.set(hit.position.x, hit.position.y, hit.position.z)
-      setStatus('タップでキューブを設置', `hit=${hit.type} placed=${cubes}`)
-    } else {
-      r.visible = false
-    }
+    hudEl.textContent =
+      `${ux.state.phase} | ${ux.state.status}/${ux.state.reason} | placed=${cubes} ` +
+      `rejected=${diag.rejected} missed=${diag.missed}`
   },
 })
 
@@ -68,14 +58,16 @@ const hitTestAt = (x, y) => {
 
 function onTap(e) {
   e.preventDefault && e.preventDefault()
-  const t = (e.touches && e.touches[0]) || e
+
+  // A tap before tracking is up must not look like a dead button.
+  if (!ux.isReady()) { diag.rejected++; return ux.rejectTap() }
+
+  const t = (e.changedTouches && e.changedTouches[0]) || (e.touches && e.touches[0]) || e
   const x = (t.clientX ?? window.innerWidth / 2) / window.innerWidth
   const y = (t.clientY ?? window.innerHeight / 2) / window.innerHeight
   const hit = hitTestAt(x, y)
-  if (!hit || !hit.position || hit.position.x === null) {
-    setStatus('平面がまだ取れていません', 'スマホをゆっくり左右に動かしてください')
-    return
-  }
+  // Tracking is fine, but this particular ray found nothing: also not a dead tap.
+  if (!hit || !hit.position || hit.position.x === null) { diag.missed++; return ux.notifyMiss() }
   const cube = new THREE.Mesh(
     new THREE.BoxGeometry(0.15, 0.15, 0.15),
     new THREE.MeshStandardMaterial({color: 0x66dd88})
@@ -85,7 +77,6 @@ function onTap(e) {
   cubes++
   diag.placed = cubes
   log('placed cube #' + cubes + ' type=' + hit.type)
-  setStatus('設置しました', `hit=${hit.type} placed=${cubes}`)
 }
 
 // Without XRExtras.FullWindowCanvas we size the drawing buffer ourselves. This has to
@@ -103,12 +94,11 @@ const onxrloaded = () => {
     XR8.GlTextureRenderer.pipelineModule(),
     XR8.Threejs.pipelineModule(),
     XR8.XrController.pipelineModule(),
+    ux.pipelineModule(),
     {
       name: 'diag',
       onCameraStatusChange: ({status, reason}) => {
         log('camera=' + status + (reason ? ' (' + reason + ')' : ''))
-        if (status === 'failed') setStatus('カメラを開けませんでした', String(reason))
-        if (status === 'hasVideo') setStatus('スキャン中…', 'ゆっくり動かして平面を検出します')
       },
       onException: (err) => { diag.errors.push('onException: ' + (err && (err.message || err))) },
     },
@@ -122,18 +112,30 @@ const onxrloaded = () => {
   XR8.run({canvas})
 }
 
-// openin.js sets __inAppBlocked when the page is running inside an app's embedded
-// webview (LINE, Instagram, ...). Hold the engine there: starting it would fire the
-// camera prompt in a context where the stream never produces frames, leaving a black
-// screen. Start once the user either escapes to a real browser or opts to try anyway.
+// Three things have to line up before the engine may start, and they can arrive in
+// any order:
+//
+//   1. xr.js is loaded (it is an async script tag).
+//   2. openin.js is not holding us: it sets __inAppBlocked inside an app's embedded
+//      webview (LINE, Instagram, ...), where starting would fire the camera prompt in
+//      a context that never produces frames, leaving a black screen. It clears the flag
+//      and emits 'inapp-dismissed' when the user escapes or opts to try anyway.
+//   3. the user tapped the start gate. On iOS that tap is what makes the permission
+//      prompts legal at all: XR8.run() calls DeviceMotionEvent.requestPermission(), and
+//      outside a user gesture iOS refuses it and the engine drops to its own English
+//      "AR requires access to device motion sensors" modal.
+//
+// The in-app guard sits above the start gate (z-index 99999 vs 100), so in a webview the
+// user answers the guard first and only then sees the gate.
 let xrReady = false
 let started = false
 const startWhenReady = () => {
-  if (started || !xrReady || window.__inAppBlocked) return
+  if (started || !xrReady || window.__inAppBlocked || !ux.isStarted()) return
   started = true
   onxrloaded()
 }
 window.addEventListener('inapp-dismissed', startWhenReady)
+ux.onStart(startWhenReady)
 const onXrAvailable = () => { xrReady = true; startWhenReady() }
 
 window.XR8 ? onXrAvailable() : window.addEventListener('xrloaded', onXrAvailable, {once: true})

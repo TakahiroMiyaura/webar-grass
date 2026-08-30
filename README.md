@@ -44,7 +44,44 @@ node serve.mjs    # https://<LAN IP>:8443/ が表示される
 ```
 
 スマホを同じ Wi-Fi につなぎ、表示された URL を開く。自己署名証明書の警告は一度だけ許可する。
-カメラ許可 → ゆっくり左右に動かす → 面が取れたらタップ。
+開始ボタンをタップ → カメラ許可 → ゆっくり左右に動かす → 案内が消えたらタップ。
+
+## トラッキング状態の UX
+
+`web/tracking-ux.js` + `web/tracking-ux.css`。ビルド不要の 2 ファイルで、
+**起動から最初のタップまで**と**トラッキングを失ったとき**を受け持つ。
+
+- **開始ゲート** — 最初のタップを受けてから `XR8.run()` を呼ぶ。
+  エンジンは `XR8.run()` の中で `DeviceMotionEvent.requestPermission()` を呼ぶが、
+  iOS ではユーザー操作の外だと拒否され、エンジン自身の英語モーダル
+  *"AR requires access to device motion sensors"* にフォールバックする。ゲートがあるとこれが出ない
+- **コーチング** — カメラは動いているがトラッキングが未確立の間、動かし方を案内する
+- **ロスト時のリカバリ** — 理由（`RELOCALIZING` / `TOO_MUCH_MOTION` / `NOT_ENOUGH_TEXTURE`）ごとに文言を変える。
+  600ms 続いてから出すので、SLAM が数フレーム落ちるたびに点滅しない
+- **準備前のタップに応答する** — トーストとバイブで返し、無反応にしない。
+  hitTest が外れたときも別の文言で返す
+- **カメラ拒否時の導線** — iOS / Android それぞれの設定手順を出し、再読み込みボタンを置く
+
+エンジンが動き出す条件は 3 つで、順番は問わない（`web/app.js` が毎回すべて再確認する）。
+
+1. `xr.js` の読み込み完了
+2. `openin.js` の `__inAppBlocked` が下りていること（アプリ内ブラウザのガード）
+3. 開始ゲートがタップされたこと
+
+アプリ内ブラウザではガード（`z-index: 99999`）が開始ゲート（同 `100`）の上に出るので、
+ユーザーはガードに答えてから開始ゲートを見ることになる。
+
+床面のワイヤーフレームと中央レティクルは**出さない**（配置はタップ位置で行うため不要）。
+
+公式の MIT パッケージ `@8thwall/coaching-overlay` と `@8thwall/xrextras` を入れた場合は、
+それらが担当する範囲（初期化中のコーチング / 許可エラー画面）から自動的に手を引く。
+`CoachingOverlay` が出るのは `LIMITED` かつ `INITIALIZING` のときだけなので、
+**ロスト時の表示・開始ゲート・タップへの応答は重複しない**。
+
+```bash
+node verify-tracking-ux.mjs             # 全パス（Chromium / WebKit）
+node verify-tracking-ux.mjs sm:webkit   # 1 パスだけ
+```
 
 ## 公開する
 
@@ -130,6 +167,8 @@ GitHub Pages の実測値。**`.wasm` の Content-Type 事故は起きない**�
 web/
   index.html          エンジンを ./external/xr/xr.js から読む（CDN 参照ゼロ）
   app.js              three.js シーン + hitTest + タップ設置
+  tracking-ux.js/.css 開始ゲート・コーチング・ロスト時リカバリ・タップへの応答
+  statemachine-test.html  tracking-ux の状態遷移を検証するための足場（本番導線には出ない）
   vendor/             three.js（setup.sh が配置。git 管理外）
   external/xr/        8th Wall エンジンバイナリ（fetch-engine.sh が配置。git 管理外）
   openin.js           アプリ内ブラウザ検出と外部ブラウザへの誘導
