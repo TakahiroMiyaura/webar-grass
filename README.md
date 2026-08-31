@@ -257,6 +257,62 @@ QR から入った人に見せるのはカメラ映像と草だけにしてあ�
 アプリ内ブラウザはここでも判定しますが、実際に止めるのは `public/openin.js` の
 ガードです（「アプリ内ブラウザ対策」を参照）。パネル側は記録だけを持ちます。
 
+## Android でカメラ映像がズームして見える件
+
+`src/xr/camera-fov.ts`。**iPhone では起きず Android でだけ起きる**ズームの補正です。
+
+原因はエンジンが **OS ごとに違う形の getUserMedia 制約**を出していることでした
+（`dist/xr.js` の読解と両ブラウザでの実測）。
+
+| | エンジンが出す制約 | Chrome / Safari の答え |
+|---|---|---|
+| iOS | `{width:{min:960},height:{min:720}}` | ネイティブのフォーマットをそのまま |
+| **Android（一般）** | **`{width:{exact:960},height:{exact:720}}`** | **`resizeMode: "crop-and-scale"`** |
+| Android（Pixel 4〜6 Pro のみ） | `{exact:1280x720}` | `resizeMode: "none"` |
+
+Chrome は `exact` を満たすためにネイティブのフレームを**切って**要求サイズを作ります。
+16:9 のネイティブから 4:3 を切り出すと横方向の画角が 75% になり、その軸は
+**画面の縦**に載るので、映像全体が最大 1.33 倍に拡大されて見えます。
+
+なお **Pixel 用の分岐はもう発火しません**。Chrome 110 以降 Android の UA は
+`Android 10; K` に固定されており、`XR8.XrDevice.deviceEstimate()` は
+`model: "K"` / `manufacturer: ""` を返します。全 Android が `exact 960x720` 経路に落ちます。
+
+### やっていること
+
+エンジンが開いたトラックを掴んで、**クロップされていないフォーマットをもう一度頼み直す**
+（`applyConstraints`）。`crop-and-scale` を報告したトラックにしか触らないので、
+`resizeMode` を持たない iOS / WebKit は素通りします。
+
+- 頼み方は `ideal`。`min` では効きません（960x720 が既に `min` を満たしてしまう）
+- 候補は 1280x720 → 1280x960 → 1440x1080 → 1920x1080 → 640x480 の順で、
+  **`resizeMode: "none"` が返ってきた最初のものを採用**します。
+  1 つも無ければエンジンの元の要求に戻します（変えるだけ無駄なので）
+- 並びは「ネイティブである可能性 × 処理コスト」順で、**アスペクト比では選んでいません**。
+  エンジンは映像をキャンバスに cover（中央クロップ・縦長端末では高さ基準）で貼るため、
+  **同じセンサーから来た 4:3 と 16:9 は画面上の画角が完全に同じ**になります。
+  効くのは「ネイティブから切られたかどうか」だけです
+
+### 実機での確認方法
+
+**デバッグモードの ⓘ**（環境パネル）に「カメラ映像」の欄が出ます。
+エンジンが開いた設定・いまの設定・試した候補が並び、下の 2 つのボタンで
+**リロードなしに切り替えられます**。
+
+| ボタン | すること |
+|---|---|
+| 広く撮る | 候補を試し直して、クロップされていないフォーマットに移る |
+| エンジン既定に戻す | エンジンが最初に要求した設定に戻す |
+
+同じ場所を映したまま交互に押すのが比較手順です。`?fov=off` を付けて開けば
+最初から補正なしで起動します。`window.__camera` に同じ内容が入っています。
+
+**未確認なのは SLAM 側です。** 解像度の変更にエンジンの内部パラメータが追従するかは
+合成カメラでは測れません（視差がないため）。描画・パイプライン・hitTest が
+切り替えを生き延びることは `npm run verify:camera-fov` で確認済みですが、
+**トラッキング精度が落ちていないかは実機で見てください**。落ちるようなら `?fov=off`、
+あるいはキャンバス側をカメラのアスペクトに合わせる（レターボックス）案に切り替えます。
+
 ## トラッキング状態の UX
 
 `src/ui/tracking-ux.js` + `src/ui/tracking-ux.css`。素の JS のままにしてあり、
@@ -427,7 +483,14 @@ npm run build
 npm run verify               # カメラ映像 + 3D 描画（Chromium / WebKit）
 npm run verify:tracking-ux   # トラッキング UX の状態遷移と実エンジン
 npm run verify:inapp         # アプリ内ブラウザのガード
+npm run verify:camera-fov    # カメラ画角の補正（Chromium 13 件 / WebKit 7 件）
 ```
+
+`verify:camera-fov` は Chromium の合成カメラが 16:9 のフォーマットしか持たないことを
+利用しています。エンジンの `exact 960x720` がそこで実際に `crop-and-scale` になるので、
+**直したい現象そのものが再現する環境**で補正を確認できます。
+セッション開始後に解像度を変えてもフレームが止まらないこと・キャンバスが黒くならないこと・
+タップが通ること、`?fov=off` と ⓘ パネルの 2 ボタンが効くことまで見ています。
 
 `npm run verify` は Chromium（Android UA）と WebKit（iOS Safari と同じエンジン）で
 実際にパイプラインを起動します。結果は `screenshots/` に出ます。
@@ -465,6 +528,7 @@ src/
     scene.ts               three.js シーン。タップ処理と各モジュールの配線
     placement.ts           タップ座標 -> 世界座標。A / B / AUTO の判定はここ
     canvas.ts              キャンバスのサイズ合わせ
+    camera-fov.ts          Android で切られたカメラ画角を取り戻す（MYAA-23）
     capability.ts          動作環境の判定
     grass.ts               草の描画。InstancedMesh 1 本、生長/風/消滅は GPU 側
     flowers.ts             草の中にランダムに咲く花。草に本数と場所を借りる
@@ -486,6 +550,7 @@ scripts/
   verify.mjs               カメラ映像 + 3D 描画の headless 確認
   verify-tracking-ux.mjs   トラッキング UX の headless 確認
   verify-inapp.mjs         アプリ内ブラウザガードの headless 確認
+  verify-camera-fov.mjs    カメラ画角の補正の headless 確認
   test-placement.mjs       設置判定のユニットテスト（ブラウザ不要）
   verify-placement.mjs     実エンジンでの設置の headless 確認
   verify-placement-preview.mjs  既知ジオメトリでの設置の headless 確認

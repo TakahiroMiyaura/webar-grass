@@ -20,6 +20,7 @@
     "test:placement": "node scripts/test-placement.mjs",
     "verify:tracking-ux": "node scripts/verify-tracking-ux.mjs",
     "verify:inapp": "node scripts/verify-inapp.mjs",
+    "verify:camera-fov": "node scripts/verify-camera-fov.mjs",
     "verify:qr": "node tools/verify-qr.mjs",
     "assets": "node tools/make-textures.mjs && node tools/make-grass-glb.mjs",
     "assets:verify": "node tools/verify-geometry.mjs",

@@ -53,7 +53,14 @@ export interface XrCameraPipelineModule {
   onUpdate?: (args: {processCpuResult: Record<string, unknown>}) => void
   // `reason` is always present as a key (undefined on success), not optional - modules
   // destructure it directly, and marking it optional makes them fail to type-check.
-  onCameraStatusChange?: (args: {status: CameraStatus; reason: string | undefined}) => void
+  // `stream` comes with 'hasStream' and `video` with 'hasVideo'; neither is present on
+  // the other statuses, so both stay optional.
+  onCameraStatusChange?: (args: {
+    status: CameraStatus
+    reason: string | undefined
+    stream?: MediaStream
+    video?: HTMLVideoElement
+  }) => void
   onException?: (error: Error) => void
   onDeviceOrientationChange?: () => void
   onCanvasSizeChange?: (args: {canvasWidth: number; canvasHeight: number}) => void
